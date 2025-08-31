@@ -13,6 +13,7 @@ A secure, whitelisted RSS feed generator for Seattle Times sports sections with 
 ## Supported Feeds
 
 This service is configured to work ONLY with these feeds:
+
 - `https://www.seattletimes.com/sports/washington-huskies-football/`
 - `https://www.seattletimes.com/sports/mariners/`
 
@@ -44,7 +45,8 @@ NODE_ENV=production
 API_KEY=your-secure-api-key-here
 ```
 
-**⚠️ IMPORTANT:** 
+**IMPORTANT:**
+
 - Generate a secure API key for production: `openssl rand -base64 32`
 - Never commit your `.env` file to version control
 - Set these as environment variables in Railway
@@ -59,23 +61,29 @@ npm run dev
 ## API Endpoints
 
 ### `GET /`
+
 Service information and allowed feeds
 
 ### `GET /health`
+
 Health check endpoint
 
 ### `GET /feed?url={allowed_url}`
+
 Get RSS feed (only works with whitelisted URLs)
 
 **Example:**
+
 ```bash
 curl "http://localhost:3000/feed?url=https://www.seattletimes.com/sports/mariners/"
 ```
 
 ### `POST /refresh`
+
 Manually refresh feeds (requires API key)
 
 **Refresh all feeds:**
+
 ```bash
 curl -X POST http://localhost:3000/refresh \
   -H "api_key: your-api-key-here" \
@@ -84,6 +92,7 @@ curl -X POST http://localhost:3000/refresh \
 ```
 
 **Refresh specific feed:**
+
 ```bash
 curl -X POST http://localhost:3000/refresh \
   -H "api_key: your-api-key-here" \
@@ -94,6 +103,7 @@ curl -X POST http://localhost:3000/refresh \
 ## Deployment to Railway
 
 1. **Push to GitHub:**
+
    ```bash
    git init
    git add .
@@ -103,11 +113,13 @@ curl -X POST http://localhost:3000/refresh \
    ```
 
 2. **Configure Railway:**
+
    - Create new project on Railway
    - Connect your GitHub repository
    - Railway will auto-detect Node.js
 
 3. **Set Environment Variables in Railway:**
+
    - `BASE_URL` - Your Railway app URL (e.g., `https://your-app.up.railway.app`)
    - `API_KEY` - Your secure API key (generate with `openssl rand -base64 32`)
    - `PORT` - Leave empty (Railway sets this automatically)
@@ -123,10 +135,10 @@ curl -X POST http://localhost:3000/refresh \
 
 ## Security Features
 
-- ✅ URL whitelist enforcement
-- ✅ API key authentication for manual refresh
-- ✅ No arbitrary URL scraping
-- ✅ Environment-based configuration
+- URL whitelist enforcement
+- API key authentication for manual refresh
+- No arbitrary URL scraping
+- Environment-based configuration
 
 ## Tech Stack
 
