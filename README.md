@@ -48,7 +48,6 @@ API_KEY=your-secure-api-key-here
 **IMPORTANT:**
 
 - Generate a secure API key for production: `openssl rand -base64 32`
-- Never commit your `.env` file to version control
 - Set these as environment variables in Railway
 
 ### 2. Local Development
@@ -132,13 +131,6 @@ curl -X POST http://localhost:3000/refresh \
 - **Automatic:** Daily at 6 AM PST
 - **Manual:** Use the `/refresh` endpoint with your API key
 - **Cache Duration:** 24 hours
-
-## Security Features
-
-- URL whitelist enforcement
-- API key authentication for manual refresh
-- No arbitrary URL scraping
-- Environment-based configuration
 
 ## Tech Stack
 
