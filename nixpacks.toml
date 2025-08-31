@@ -1,0 +1,9 @@
+[phases.setup]
+nixPkgs = ["nodejs-18_x", "libuuid"]
+aptPkgs = ["chromium", "chromium-driver"]
+
+[phases.install]
+cmds = ["npm ci --production"]
+
+[start]
+cmd = "npm start"
