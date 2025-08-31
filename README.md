@@ -140,3 +140,7 @@ curl -X POST http://localhost:3000/refresh \
 - **Node-Cron** - Scheduled tasks
 - **RSS** - RSS 2.0 feed generation
 - **Node-Cache** - In-memory caching
+
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
