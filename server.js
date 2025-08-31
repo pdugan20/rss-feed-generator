@@ -33,7 +33,12 @@ fastify.get('/', async (request, reply) => {
 });
 
 fastify.get('/health', async (request, reply) => {
-  return { status: 'ok', timestamp: new Date().toISOString() };
+  return { 
+    status: 'ok', 
+    timestamp: new Date().toISOString(),
+    has_api_key: !!process.env.API_KEY,
+    api_key_length: process.env.API_KEY ? process.env.API_KEY.length : 0
+  };
 });
 
 // Manual refresh endpoint (protected with API key)
