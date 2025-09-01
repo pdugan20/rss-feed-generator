@@ -41,6 +41,33 @@ fastify.get('/health', async (request, reply) => {
   };
 });
 
+// Debug endpoint to test date extraction
+fastify.get('/debug-dates', async (request, reply) => {
+  const { url } = request.query;
+  
+  if (!url) {
+    return reply.code(400).send({ error: 'URL parameter required' });
+  }
+  
+  try {
+    const { articles } = await scraper.scrapeArticles(url);
+    const dateInfo = articles.slice(0, 5).map(article => ({
+      title: article.title.substring(0, 50),
+      pubDate: article.pubDate,
+      dateString: article.pubDate ? article.pubDate.toISOString() : 'null'
+    }));
+    
+    return { 
+      url,
+      articlesFound: articles.length,
+      dateExtractionResults: dateInfo
+    };
+  } catch (error) {
+    fastify.log.error(error);
+    return reply.code(500).send({ error: 'Failed to scrape dates', message: error.message });
+  }
+});
+
 // Manual refresh endpoint (protected with API key)
 fastify.post('/refresh', async (request, reply) => {
   const { api_key } = request.headers;
