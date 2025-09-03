@@ -235,8 +235,9 @@ const start = async () => {
     await fastify.listen({ port, host });
     console.log(`Server running at http://${host}:${port}`);
     
-    // Start the scheduler for daily updates at 6 AM PST
-    scheduler.start();
+    // Scheduler no longer auto-starts - Railway Cron handles scheduling
+    // To refresh feeds, use Railway Cron to run refresh-feeds.js
+    // or call the /refresh endpoint with API key
     
   } catch (err) {
     fastify.log.error(err);
