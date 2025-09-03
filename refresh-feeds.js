@@ -6,14 +6,14 @@ const scraper = require('./lib/scraper');
 
 async function main() {
   console.log(`[${new Date().toISOString()}] Railway Cron: Starting scheduled feed refresh...`);
-  
+
   try {
     // Use the existing scheduler's refresh method
     await scheduler.refreshFeeds();
-    
+
     // Close the scraper browser
     await scraper.close();
-    
+
     console.log(`[${new Date().toISOString()}] Railway Cron: Feed refresh completed successfully`);
     process.exit(0);
   } catch (error) {
