@@ -1,9 +1,16 @@
 # RSS Feed Generator
 
+[![CI](https://github.com/pdugan20/rss-feed-generator/actions/workflows/ci.yml/badge.svg)](https://github.com/pdugan20/rss-feed-generator/actions/workflows/ci.yml)
+[![TypeScript](https://img.shields.io/badge/TypeScript-strict-blue?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![Node.js](https://img.shields.io/badge/Node.js-%3E%3D20-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Code Style: Prettier](https://img.shields.io/badge/code_style-prettier-ff69b4.svg)](https://prettier.io/)
+
 A secure, whitelisted RSS feed generator with pluggable per-site extractors and automatic daily updates. Generates RSS 2.0 feeds from websites that don't provide their own.
 
 ## Features
 
+- **TypeScript with strict mode** - Full type safety enforced in CI and pre-push hooks
 - **Whitelisted feeds only** - Restricted to pre-configured URLs
 - **Per-site extractors** - Dedicated scraping logic per website for accurate extraction
 - **Railway Cron scheduling** - Reliable scheduled updates via Railway's cron service
@@ -24,12 +31,12 @@ A secure, whitelisted RSS feed generator with pluggable per-site extractors and 
 
 Adding a new feed requires exactly 4 file changes (enforced by architecture tests):
 
-1. Create `lib/extractors/<name>.js` -- export `{ extract }` where `extract($, url)` takes a Cheerio object and returns an array of articles
-2. Add entry to `lib/feeds.js` -- `{ url, extractor, label }`
-3. Register in `lib/extract.js` -- add `'<name>': require('./extractors/<name>')` to the registry
-4. Create `__tests__/lib/extractors/<name>.test.js` -- test against sample HTML fixtures
+1. Create `lib/extractors/<name>.ts` -- export `{ extract }` where `extract($: CheerioAPI, url: string)` returns `Article[]`
+2. Add entry to `lib/feeds.ts` -- `{ url, extractor, label }` typed as `FeedConfig`
+3. Register in `lib/extract.ts` -- add `'<name>': require('./extractors/<name>')` to the registry
+4. Create `__tests__/lib/extractors/<name>.test.ts` -- test against sample HTML fixtures
 
-The architecture consistency test (`__tests__/lib/architecture.test.js`) validates this contract on every test run.
+The architecture consistency test (`__tests__/lib/architecture.test.ts`) validates this contract on every test run.
 
 ## Setup
 
@@ -70,6 +77,8 @@ API_KEY=your-secure-api-key-here
 npm install
 npm run dev
 ```
+
+`npm run dev` uses `tsx watch` to run TypeScript directly with hot reloading. For production, the project compiles to JavaScript via `npm run build` and runs from `dist/`.
 
 ## API Endpoints
 
@@ -137,8 +146,8 @@ The script checks `/status`, triggers `/refresh`, and validates each feed endpoi
 1. **Configure Railway Web Service:**
    - Create new project on Railway
    - Connect your GitHub repository
-   - Railway will auto-detect Node.js
-   - Start command: `npm start` (default)
+   - Railway will auto-detect Node.js and run `npm run build` via nixpacks
+   - Start command: `npm start` (runs compiled `dist/server.js`)
 
 2. **Set Environment Variables:**
    - `BASE_URL` - Your Railway app URL (e.g., `https://your-app.up.railway.app`)
@@ -155,7 +164,7 @@ The script checks `/status`, triggers `/refresh`, and validates each feed endpoi
 2. **Configure the Cron Service:**
    - Go to **Settings** tab
    - **Service Name:** `rss-feed-cron` (or similar)
-   - **Start Command:** `node scripts/refresh-feeds.js`
+   - **Start Command:** `node dist/scripts/refresh-feeds.js`
    - **Cron Schedule:** `0 13 * * *` (6 AM PST in UTC)
 
 3. **Copy Environment Variables:**
@@ -184,6 +193,9 @@ railway status      # Check deployment status
 ## Development
 
 ```bash
+npm run dev           # Start dev server with tsx watch
+npm run build         # Compile TypeScript to dist/
+npm run typecheck     # Type check without emitting (tsc --noEmit)
 npm run lint          # Run ESLint
 npm run lint:fix      # Auto-fix lint issues
 npm run format        # Format code with Prettier
@@ -191,34 +203,36 @@ npm run format:check  # Check formatting without changes
 npm test              # Run test suite
 ```
 
-Pre-commit hooks automatically lint and format staged files. Pre-push hooks run the test suite.
+Pre-commit hooks automatically lint and format staged files. Pre-push hooks run type checking and the test suite.
 
 ## Architecture
 
 ```text
 lib/
-  feeds.js              Single source of truth for feed URLs + extractor mappings
-  extract.js            Extractor registry + shared helpers (resolveUrl, parseDate)
+  types.ts              Shared interfaces (Article, FeedConfig, Extractor)
+  feeds.ts              Single source of truth for feed URLs + extractor mappings
+  extract.ts            Extractor registry + shared helpers (resolveUrl, parseDate)
   extractors/
-    seattle-times.js    Seattle Times extraction
-    anthropic.js        Anthropic engineering blog extraction
-    claude-blog.js      Claude blog extraction
-    generic.js          Generic fallback extraction
-  scraper.js            Browser management only (Puppeteer)
-  scheduler.js          Scheduled feed refresh
-  rss-generator.js      RSS 2.0 XML generation
-  cache.js              In-memory cache (24h TTL)
+    seattle-times.ts    Seattle Times extraction
+    anthropic.ts        Anthropic engineering blog extraction
+    claude-blog.ts      Claude blog extraction
+    generic.ts          Generic fallback extraction
+  scraper.ts            Browser management only (Puppeteer)
+  scheduler.ts          Scheduled feed refresh
+  rss-generator.ts      RSS 2.0 XML generation
+  cache.ts              In-memory cache (24h TTL)
 ```
 
 ## Tech Stack
 
+- **TypeScript** - Strict mode, compiled to `dist/` for production
 - **Fastify** - High-performance web framework
 - **Puppeteer** - Headless Chrome for JavaScript-rendered pages
 - **Cheerio** - Server-side DOM manipulation
 - **Railway Cron** - Scheduled tasks
 - **RSS** - RSS 2.0 feed generation
 - **Node-Cache** - In-memory caching
-- **Jest** - Testing framework
+- **Jest + ts-jest** - Testing framework with TypeScript support
 - **Husky + lint-staged** - Pre-commit/pre-push hooks
 - **ESLint + Prettier** - Linting and formatting
 
