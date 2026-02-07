@@ -5,4 +5,6 @@ node_modules/
 *.log
 dist/
 build/
+coverage/
 .cache/
+page-content.html

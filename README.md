@@ -4,11 +4,11 @@ A secure, whitelisted RSS feed generator for Seattle Times sports sections with 
 
 ## Features
 
-- 🔒 **Whitelisted feeds only** - Restricted to pre-configured URLs
-- 📅 **Railway Cron scheduling** - Reliable scheduled updates via Railway's cron service
-- 🔑 **API key protected** - Manual refresh requires authentication
-- ⚡ **1-hour caching** - Balances freshness with server load
-- 📰 **Seattle Times optimized** - Custom selectors for accurate scraping
+- **Whitelisted feeds only** - Restricted to pre-configured URLs
+- **Railway Cron scheduling** - Reliable scheduled updates via Railway's cron service
+- **API key protected** - Manual refresh requires authentication
+- **24-hour caching** - Balances freshness with server load
+- **Seattle Times optimized** - Custom selectors for accurate scraping
 
 ## Supported Feeds
 
@@ -148,7 +148,19 @@ curl -X POST http://localhost:3000/refresh \
 
 - **Automatic:** Configured via Railway Cron (recommended: daily at 6 AM PST using `0 13 * * *`)
 - **Manual:** Use the `/refresh` endpoint with your API key
-- **Cache Duration:** 1 hour
+- **Cache Duration:** 24 hours
+
+## Development
+
+```bash
+npm run lint          # Run ESLint
+npm run lint:fix      # Auto-fix lint issues
+npm run format        # Format code with Prettier
+npm run format:check  # Check formatting without changes
+npm test              # Run test suite
+```
+
+Pre-commit hooks automatically lint and format staged files. Pre-push hooks run the test suite.
 
 ## Tech Stack
 
