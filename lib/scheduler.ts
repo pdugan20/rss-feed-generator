@@ -2,6 +2,7 @@ import cache from './cache';
 import scraper from './scraper';
 import rssGenerator from './rss-generator';
 import { feedUrls } from './feeds';
+import { enrichArticles } from './enricher';
 
 class Scheduler {
   feeds: string[];
@@ -25,7 +26,7 @@ class Scheduler {
         const { articles, pageTitle } = await scraper.scrapeArticles(feedUrl);
 
         if (articles && articles.length > 0) {
-          // Generate and cache the RSS feed
+          await enrichArticles(feedUrl, articles);
           const rssFeed = rssGenerator.generateFeed(feedUrl, articles, pageTitle);
           cache.set(cacheKey, rssFeed);
 

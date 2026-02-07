@@ -20,12 +20,12 @@ A secure, whitelisted RSS feed generator with pluggable per-site extractors and 
 
 ## Supported Feeds
 
-| Label                 | URL                                                                | Extractor     |
-| --------------------- | ------------------------------------------------------------------ | ------------- |
-| huskies               | `https://www.seattletimes.com/sports/washington-huskies-football/` | seattle-times |
-| mariners              | `https://www.seattletimes.com/sports/mariners/`                    | seattle-times |
-| anthropic-engineering | `https://www.anthropic.com/engineering`                            | anthropic     |
-| claude-blog           | `https://claude.com/blog`                                          | claude-blog   |
+| Feed                  | Source                                                                            | RSS                                                                                                                                                     | Category | Enriched |
+| --------------------- | --------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- | -------- |
+| UW Huskies Football   | [Seattle Times](https://www.seattletimes.com/sports/washington-huskies-football/) | [Subscribe](https://rss-feed-generator-production.up.railway.app/feed?url=https%3A%2F%2Fwww.seattletimes.com%2Fsports%2Fwashington-huskies-football%2F) | Sports   | No       |
+| Mariners              | [Seattle Times](https://www.seattletimes.com/sports/mariners/)                    | [Subscribe](https://rss-feed-generator-production.up.railway.app/feed?url=https%3A%2F%2Fwww.seattletimes.com%2Fsports%2Fmariners%2F)                    | Sports   | No       |
+| Anthropic Engineering | [anthropic.com](https://www.anthropic.com/engineering)                            | [Subscribe](https://rss-feed-generator-production.up.railway.app/feed?url=https%3A%2F%2Fwww.anthropic.com%2Fengineering)                                | Tech     | No       |
+| Claude Blog           | [claude.com](https://claude.com/blog)                                             | [Subscribe](https://rss-feed-generator-production.up.railway.app/feed?url=https%3A%2F%2Fclaude.com%2Fblog)                                              | Tech     | Yes      |
 
 ## Adding a New Site
 

@@ -17,4 +17,5 @@ export interface FeedConfig {
 
 export interface Extractor {
   extract: ($: CheerioAPI, url: string) => Article[];
+  enrichArticle?: ($: CheerioAPI, url: string) => { description?: string };
 }

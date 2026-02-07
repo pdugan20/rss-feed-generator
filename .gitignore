@@ -9,3 +9,4 @@ coverage/
 .cache/
 .railway/
 page-content.html
+data/

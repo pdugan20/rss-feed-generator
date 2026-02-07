@@ -5,6 +5,7 @@ import scraper from './lib/scraper';
 import rssGenerator from './lib/rss-generator';
 import cache from './lib/cache';
 import { feedUrls, feeds } from './lib/feeds';
+import { enrichArticles } from './lib/enricher';
 
 const ALLOWED_FEEDS: string[] = feedUrls;
 
@@ -102,6 +103,7 @@ function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
 
         const { articles, pageTitle } = await scraper.scrapeArticles(url);
         if (articles && articles.length > 0) {
+          await enrichArticles(url, articles);
           const rssFeed = rssGenerator.generateFeed(url, articles, pageTitle);
           cache.set(cacheKey, rssFeed);
 
@@ -134,6 +136,7 @@ function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
             const { articles, pageTitle } = await scraper.scrapeArticles(feedUrl);
 
             if (articles && articles.length > 0) {
+              await enrichArticles(feedUrl, articles);
               const rssFeed = rssGenerator.generateFeed(feedUrl, articles, pageTitle);
               cache.set(cacheKey, rssFeed);
 
@@ -215,6 +218,7 @@ function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
           });
         }
 
+        await enrichArticles(url, articles);
         const rssFeed = rssGenerator.generateFeed(url, articles, pageTitle);
 
         cache.set(cacheKey, rssFeed);

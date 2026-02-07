@@ -111,4 +111,14 @@ function extract($: CheerioAPI, _url: string): Article[] {
   return articles;
 }
 
-export { extract };
+function enrichArticle($: CheerioAPI, _url: string): { description?: string } {
+  const desc =
+    $('meta[name="description"]').attr('content') ||
+    $('meta[property="og:description"]').attr('content') ||
+    $('article p, .blog-content p, main p').first().text().trim() ||
+    '';
+
+  return { description: desc.substring(0, 500) || undefined };
+}
+
+export { extract, enrichArticle };

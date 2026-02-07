@@ -1,5 +1,5 @@
 import * as cheerio from 'cheerio';
-import { extract } from '../../../lib/extractors/claude-blog';
+import { extract, enrichArticle } from '../../../lib/extractors/claude-blog';
 
 const BASE_URL = 'https://claude.com/blog';
 
@@ -183,5 +183,71 @@ describe('claude-blog extractor', () => {
     const $ = cheerio.load(SAMPLE_HTML);
     const articles = extract($, BASE_URL);
     expect(articles[0].guid).toBe(articles[0].link);
+  });
+});
+
+describe('claude-blog enrichArticle', () => {
+  test('extracts description from meta name tag', () => {
+    const html = `
+      <html><head>
+        <meta name="description" content="A meta description about the blog post.">
+      </head><body><p>Body text</p></body></html>
+    `;
+    const $ = cheerio.load(html);
+    const result = enrichArticle($, 'https://claude.com/blog/some-post');
+    expect(result.description).toBe('A meta description about the blog post.');
+  });
+
+  test('extracts description from og:description tag', () => {
+    const html = `
+      <html><head>
+        <meta property="og:description" content="An OG description for sharing.">
+      </head><body><p>Body text</p></body></html>
+    `;
+    const $ = cheerio.load(html);
+    const result = enrichArticle($, 'https://claude.com/blog/some-post');
+    expect(result.description).toBe('An OG description for sharing.');
+  });
+
+  test('prefers meta name over og:description', () => {
+    const html = `
+      <html><head>
+        <meta name="description" content="Meta desc">
+        <meta property="og:description" content="OG desc">
+      </head><body></body></html>
+    `;
+    const $ = cheerio.load(html);
+    const result = enrichArticle($, 'https://claude.com/blog/some-post');
+    expect(result.description).toBe('Meta desc');
+  });
+
+  test('falls back to first paragraph', () => {
+    const html = `
+      <html><head></head><body>
+        <article><p>This is the first paragraph of the article.</p></article>
+      </body></html>
+    `;
+    const $ = cheerio.load(html);
+    const result = enrichArticle($, 'https://claude.com/blog/some-post');
+    expect(result.description).toBe('This is the first paragraph of the article.');
+  });
+
+  test('returns undefined description for empty page', () => {
+    const html = '<html><head></head><body></body></html>';
+    const $ = cheerio.load(html);
+    const result = enrichArticle($, 'https://claude.com/blog/some-post');
+    expect(result.description).toBeUndefined();
+  });
+
+  test('truncates long descriptions to 500 characters', () => {
+    const longDesc = 'A'.repeat(600);
+    const html = `
+      <html><head>
+        <meta name="description" content="${longDesc}">
+      </head><body></body></html>
+    `;
+    const $ = cheerio.load(html);
+    const result = enrichArticle($, 'https://claude.com/blog/some-post');
+    expect(result.description!.length).toBe(500);
   });
 });
