@@ -104,6 +104,29 @@ describe('claude-blog extractor', () => {
     expect(articles[0].link).toBe('https://claude.com/blog/some-long-article-post');
   });
 
+  test('skips category filter links', () => {
+    const html = `
+      <html><body>
+        <div class="blog_cms_item">
+          <a href="/blog/category/agents" class="clickable_link">Read</a>
+          <h3 class="card_blog_title">Agents</h3>
+        </div>
+        <div class="blog_cms_item">
+          <a href="/blog/category/claude-code" class="clickable_link">Read</a>
+          <h3 class="card_blog_title">Claude Code</h3>
+        </div>
+        <div class="blog_cms_item">
+          <a href="/blog/real-post-title" class="clickable_link">Read</a>
+          <h3 class="card_blog_title">A Real Blog Post Title</h3>
+        </div>
+      </body></html>
+    `;
+    const $ = cheerio.load(html);
+    const articles = extract($, BASE_URL);
+    expect(articles).toHaveLength(1);
+    expect(articles[0].title).toBe('A Real Blog Post Title');
+  });
+
   test('skips main /blog link in fallback', () => {
     const html = `
       <html><body>

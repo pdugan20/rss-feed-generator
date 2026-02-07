@@ -19,6 +19,7 @@ function extract($: CheerioAPI, _url: string): Article[] {
 
     const href = $link.attr('href');
     if (!href || href === '/blog' || href === '/blog/') return;
+    if (href.includes('/blog/category/')) return;
 
     const fullUrl = resolveUrl(href, baseUrl);
     if (!fullUrl || seenUrls.has(fullUrl)) return;
@@ -81,6 +82,7 @@ function extract($: CheerioAPI, _url: string): Article[] {
       const href = $link.attr('href');
 
       if (!href || href === '/blog' || href === '/blog/') return;
+      if (href.includes('/blog/category/')) return;
       if (href.startsWith('#') || href.startsWith('javascript:')) return;
 
       const fullUrl = resolveUrl(href, baseUrl);
