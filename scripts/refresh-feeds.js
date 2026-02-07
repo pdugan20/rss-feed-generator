@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 
-require('dotenv').config();
-const scheduler = require('./lib/scheduler');
-const scraper = require('./lib/scraper');
+require('dotenv').config({ path: require('path').join(__dirname, '..', '.env') });
+const scheduler = require('../lib/scheduler');
+const scraper = require('../lib/scraper');
 
 async function main() {
   console.log(`[${new Date().toISOString()}] Railway Cron: Starting scheduled feed refresh...`);

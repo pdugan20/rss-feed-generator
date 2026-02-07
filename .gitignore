@@ -7,4 +7,5 @@ dist/
 build/
 coverage/
 .cache/
+.railway/
 page-content.html

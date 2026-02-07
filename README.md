@@ -155,7 +155,7 @@ The script checks `/status`, triggers `/refresh`, and validates each feed endpoi
 2. **Configure the Cron Service:**
    - Go to **Settings** tab
    - **Service Name:** `rss-feed-cron` (or similar)
-   - **Start Command:** `node refresh-feeds.js`
+   - **Start Command:** `node scripts/refresh-feeds.js`
    - **Cron Schedule:** `0 13 * * *` (6 AM PST in UTC)
 
 3. **Copy Environment Variables:**

@@ -1,7 +1,7 @@
 {
   "name": "rss-feed-generator",
   "version": "1.0.0",
-  "description": "Secure, whitelisted RSS feed generator for Seattle Times sports sections",
+  "description": "Secure, whitelisted RSS feed generator with pluggable per-site extractors",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
