@@ -36,7 +36,9 @@ function extract($: CheerioAPI, _url: string): Article[] {
 
     // Extract date from metadata
     let pubDate: Date | null = null;
-    const $meta = $item.find('.card_blog_list_meta, [class*="meta"], [class*="date"]').first();
+    const $meta = $item
+      .find('.card_blog_list_meta, .u-text-style-caption, [class*="meta"], [class*="date"]')
+      .first();
     if ($meta.length > 0) {
       const $time = $meta.find('time');
       if ($time.length > 0) {

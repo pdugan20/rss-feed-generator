@@ -70,6 +70,29 @@ describe('claude-blog extractor', () => {
     expect(articles[0].pubDate!.getMonth()).toBe(0); // January
   });
 
+  test('parses date from u-text-style-caption element (live site format)', () => {
+    const html = `
+      <html><body>
+        <div class="blog_cms_item">
+          <div class="card_blog_wrap">
+            <a href="/blog/some-post" class="clickable_link">Read</a>
+            <div class="card_blog_content">
+              <div class="u-text-style-caption u-foreground-tertiary u-mb-1-5">Feb 5, 2026</div>
+              <div class="card_blog_title u-text-style-h6">Some Blog Post Title Here</div>
+            </div>
+          </div>
+        </div>
+      </body></html>
+    `;
+    const $ = cheerio.load(html);
+    const articles = extract($, BASE_URL);
+    expect(articles).toHaveLength(1);
+    expect(articles[0].pubDate).toBeInstanceOf(Date);
+    expect(articles[0].pubDate!.getFullYear()).toBe(2026);
+    expect(articles[0].pubDate!.getMonth()).toBe(1); // February
+    expect(articles[0].pubDate!.getDate()).toBe(5);
+  });
+
   test('extracts image URL', () => {
     const $ = cheerio.load(SAMPLE_HTML);
     const articles = extract($, BASE_URL);
