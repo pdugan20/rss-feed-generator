@@ -8,7 +8,7 @@ function extract($: CheerioAPI, _url: string): Article[] {
   const baseUrl = 'https://claude.com';
 
   // Strategy 1: Webflow CMS items
-  $('.blog_cms_item, .w-dyn-item').each((_index, element) => {
+  $('.blog_cms_item').each((_index, element) => {
     if (articles.length >= 20) return false;
 
     const $item = $(element);
