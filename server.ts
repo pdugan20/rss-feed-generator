@@ -2,12 +2,21 @@ import 'dotenv/config';
 import Fastify, { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import cors from '@fastify/cors';
 import scraper from './lib/scraper';
-import rssGenerator from './lib/rss-generator';
+import feedGenerator from './lib/feed-generator';
 import cache from './lib/cache';
 import { feedUrls, feeds } from './lib/feeds';
 import { enrichArticles } from './lib/enricher';
+import type { FeedFormat, GeneratedFeeds } from './lib/types';
 
 const ALLOWED_FEEDS: string[] = feedUrls;
+const VALID_FORMATS: FeedFormat[] = ['rss', 'atom', 'json'];
+
+function parseFormat(value: string | undefined): FeedFormat {
+  if (value && VALID_FORMATS.includes(value as FeedFormat)) {
+    return value as FeedFormat;
+  }
+  return 'rss';
+}
 
 interface BuildAppOptions {
   logger?: boolean;
@@ -32,12 +41,17 @@ function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
     return {
       service: 'RSS Feed Generator',
       endpoints: {
-        '/feed': 'Get RSS feed (query param: url)',
+        '/feed': 'Get feed (query params: url, format=rss|atom|json)',
         '/health': 'Health check',
         '/status': 'Per-feed cache status',
         '/refresh': 'Manual refresh (POST, requires API key)',
       },
       allowed_feeds: ALLOWED_FEEDS,
+      formats: {
+        rss: 'RSS 2.0 (default)',
+        atom: 'Atom 1.0',
+        json: 'JSON Feed 1.0',
+      },
       examples,
       refresh_schedule: 'Daily at 6 AM PST',
     };
@@ -104,8 +118,8 @@ function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
         const { articles, pageTitle } = await scraper.scrapeArticles(url);
         if (articles && articles.length > 0) {
           await enrichArticles(url, articles);
-          const rssFeed = rssGenerator.generateFeed(url, articles, pageTitle);
-          cache.set(cacheKey, rssFeed);
+          const generatedFeeds = await feedGenerator.generateFeeds(url, articles, pageTitle);
+          cache.set(cacheKey, generatedFeeds);
 
           return {
             status: 'success',
@@ -137,8 +151,12 @@ function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
 
             if (articles && articles.length > 0) {
               await enrichArticles(feedUrl, articles);
-              const rssFeed = rssGenerator.generateFeed(feedUrl, articles, pageTitle);
-              cache.set(cacheKey, rssFeed);
+              const generatedFeeds = await feedGenerator.generateFeeds(
+                feedUrl,
+                articles,
+                pageTitle
+              );
+              cache.set(cacheKey, generatedFeeds);
 
               results.push({
                 url: feedUrl,
@@ -179,13 +197,18 @@ function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
 
   fastify.get(
     '/feed',
-    async (request: FastifyRequest<{ Querystring: { url?: string } }>, reply: FastifyReply) => {
-      const { url } = request.query;
+    async (
+      request: FastifyRequest<{ Querystring: { url?: string; format?: string } }>,
+      reply: FastifyReply
+    ) => {
+      const { url, format: formatParam } = request.query;
+      const format = parseFormat(formatParam);
 
       if (!url) {
         return reply.code(400).send({
           error: 'URL parameter is required',
           example: '/feed?url=https://www.seattletimes.com/sports/mariners/',
+          formats: 'rss (default), atom, json',
         });
       }
 
@@ -199,13 +222,13 @@ function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
 
       try {
         const cacheKey = `feed:${url}`;
-        const cachedFeed = cache.get(cacheKey);
+        const cached = cache.get<GeneratedFeeds>(cacheKey);
 
-        if (cachedFeed) {
-          fastify.log.info(`Serving cached feed for ${url}`);
-          reply.header('Content-Type', 'application/rss+xml; charset=utf-8');
+        if (cached) {
+          fastify.log.info(`Serving cached feed for ${url} (${format})`);
+          reply.header('Content-Type', feedGenerator.getContentType(format));
           reply.header('X-Cache', 'HIT');
-          return reply.send(cachedFeed);
+          return reply.send(cached[format]);
         }
 
         fastify.log.info(`Scraping ${url}`);
@@ -219,17 +242,17 @@ function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
         }
 
         await enrichArticles(url, articles);
-        const rssFeed = rssGenerator.generateFeed(url, articles, pageTitle);
+        const generatedFeeds = await feedGenerator.generateFeeds(url, articles, pageTitle);
 
-        cache.set(cacheKey, rssFeed);
+        cache.set(cacheKey, generatedFeeds);
 
-        reply.header('Content-Type', 'application/rss+xml; charset=utf-8');
+        reply.header('Content-Type', feedGenerator.getContentType(format));
         reply.header('X-Cache', 'MISS');
-        return reply.send(rssFeed);
+        return reply.send(generatedFeeds[format]);
       } catch (error) {
         fastify.log.error(error);
         return reply.code(500).send({
-          error: 'Failed to generate RSS feed',
+          error: 'Failed to generate feed',
           message: (error as Error).message,
         });
       }

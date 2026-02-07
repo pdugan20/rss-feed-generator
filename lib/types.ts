@@ -19,3 +19,11 @@ export interface Extractor {
   extract: ($: CheerioAPI, url: string) => Article[];
   enrichArticle?: ($: CheerioAPI, url: string) => { description?: string };
 }
+
+export type FeedFormat = 'rss' | 'atom' | 'json';
+
+export interface GeneratedFeeds {
+  rss: string;
+  atom: string;
+  json: string;
+}

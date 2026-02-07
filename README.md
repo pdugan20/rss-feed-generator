@@ -6,13 +6,16 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Code Style: Prettier](https://img.shields.io/badge/code_style-prettier-ff69b4.svg)](https://prettier.io/)
 
-A secure, whitelisted RSS feed generator with pluggable per-site extractors and automatic daily updates. Generates RSS 2.0 feeds from websites that don't provide their own.
+A secure, whitelisted feed generator with pluggable per-site extractors and automatic daily updates. Generates RSS 2.0, Atom 1.0, and JSON Feed 1.0 from websites that don't provide their own.
 
 ## Features
 
+- **Multi-format output** - RSS 2.0, Atom 1.0, and JSON Feed 1.0 from a single source
 - **TypeScript with strict mode** - Full type safety enforced in CI and pre-push hooks
 - **Whitelisted feeds only** - Restricted to pre-configured URLs
 - **Per-site extractors** - Dedicated scraping logic per website for accurate extraction
+- **Article enrichment** - Optional per-article scraping for descriptions from individual pages
+- **Persistent article store** - Enriched descriptions cached to disk, surviving deploys
 - **Railway Cron scheduling** - Reliable scheduled updates via Railway's cron service
 - **API key protected** - Manual refresh requires authentication
 - **24-hour caching** - Balances freshness with server load
@@ -27,6 +30,8 @@ A secure, whitelisted RSS feed generator with pluggable per-site extractors and 
 | Anthropic Engineering | [anthropic.com](https://www.anthropic.com/engineering)                               | [Subscribe](https://rss-feed-generator-production.up.railway.app/feed?url=https%3A%2F%2Fwww.anthropic.com%2Fengineering)                                | Tech     | No       |
 | Claude Blog           | [claude.com](https://claude.com/blog)                                                | [Subscribe](https://rss-feed-generator-production.up.railway.app/feed?url=https%3A%2F%2Fclaude.com%2Fblog)                                              | Tech     | Yes      |
 
+All feeds support `?format=atom` and `?format=json` in addition to the default RSS 2.0.
+
 ## Adding a New Site
 
 Adding a new feed requires exactly 4 file changes (enforced by architecture tests):
@@ -37,6 +42,8 @@ Adding a new feed requires exactly 4 file changes (enforced by architecture test
 4. Create `__tests__/lib/extractors/<name>.test.ts` -- test against sample HTML fixtures
 
 The architecture consistency test (`__tests__/lib/architecture.test.ts`) validates this contract on every test run.
+
+Optionally, export an `enrichArticle($: CheerioAPI, url: string)` function from the extractor to enable per-article description enrichment.
 
 ## Setup
 
@@ -64,6 +71,9 @@ NODE_ENV=production
 # API Key for manual refresh endpoint
 # Generate a secure key with: openssl rand -base64 32
 API_KEY=your-secure-api-key-here
+
+# Article store data directory (default: ./data, Railway: /app/data)
+# DATA_DIR=/app/data
 ```
 
 **IMPORTANT:**
@@ -84,7 +94,7 @@ npm run dev
 
 ### `GET /`
 
-Service information, allowed feeds, and auto-generated examples.
+Service information, allowed feeds, available formats, and auto-generated examples.
 
 ### `GET /health`
 
@@ -98,12 +108,24 @@ Per-feed cache status. Returns `"healthy"` when all feeds are cached, `"degraded
 curl http://localhost:3000/status
 ```
 
-### `GET /feed?url={allowed_url}`
+### `GET /feed?url={allowed_url}&format={rss|atom|json}`
 
-Get RSS feed (only works with whitelisted URLs).
+Get feed in the specified format (only works with whitelisted URLs).
+
+| Parameter | Required | Default | Description                          |
+| --------- | -------- | ------- | ------------------------------------ |
+| `url`     | Yes      | -       | Whitelisted source URL               |
+| `format`  | No       | `rss`   | Output format: `rss`, `atom`, `json` |
 
 ```bash
+# RSS 2.0 (default)
 curl "http://localhost:3000/feed?url=https://www.seattletimes.com/sports/mariners/"
+
+# Atom 1.0
+curl "http://localhost:3000/feed?url=https://www.seattletimes.com/sports/mariners/&format=atom"
+
+# JSON Feed 1.0
+curl "http://localhost:3000/feed?url=https://www.seattletimes.com/sports/mariners/&format=json"
 ```
 
 ### `POST /refresh`
@@ -152,7 +174,13 @@ The script checks `/status`, triggers `/refresh`, and validates each feed endpoi
 2. **Set Environment Variables:**
    - `BASE_URL` - Your Railway app URL (e.g., `https://your-app.up.railway.app`)
    - `API_KEY` - Your secure API key (generate with `openssl rand -base64 32`)
+   - `DATA_DIR` - Set to `/app/data` for persistent article store
    - `PORT` - Leave empty (Railway sets this automatically)
+
+3. **Add Persistent Volume (for article enrichment):**
+   - In your Railway project, open the web service
+   - Add a volume with mount path `/app/data`
+   - This stores enriched article descriptions across deploys
 
 ### Cron Service Setup (For Scheduled Updates)
 
@@ -209,17 +237,19 @@ Pre-commit hooks automatically lint and format staged files. Pre-push hooks run 
 
 ```text
 lib/
-  types.ts              Shared interfaces (Article, FeedConfig, Extractor)
+  types.ts              Shared interfaces (Article, FeedConfig, Extractor, FeedFormat)
   feeds.ts              Single source of truth for feed URLs + extractor mappings
   extract.ts            Extractor registry + shared helpers (resolveUrl, parseDate)
   extractors/
     seattle-times.ts    Seattle Times extraction
     anthropic.ts        Anthropic engineering blog extraction
-    claude-blog.ts      Claude blog extraction
+    claude-blog.ts      Claude blog extraction (with enrichment)
     generic.ts          Generic fallback extraction
   scraper.ts            Browser management only (Puppeteer)
   scheduler.ts          Scheduled feed refresh
-  rss-generator.ts      RSS 2.0 XML generation
+  feed-generator.ts     Multi-format feed generation (RSS, Atom, JSON)
+  enricher.ts           Article enrichment pipeline
+  article-store.ts      Persistent article metadata (descriptions)
   cache.ts              In-memory cache (24h TTL)
 ```
 
@@ -230,7 +260,7 @@ lib/
 - **Puppeteer** - Headless Chrome for JavaScript-rendered pages
 - **Cheerio** - Server-side DOM manipulation
 - **Railway Cron** - Scheduled tasks
-- **RSS** - RSS 2.0 feed generation
+- **Feed** - Multi-format feed generation (RSS 2.0, Atom 1.0, JSON Feed 1.0)
 - **Node-Cache** - In-memory caching
 - **Jest + ts-jest** - Testing framework with TypeScript support
 - **Husky + lint-staged** - Pre-commit/pre-push hooks

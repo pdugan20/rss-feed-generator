@@ -8,6 +8,10 @@ const config: Config = {
   testMatch: ['**/__tests__/**/*.ts', '**/*.test.ts'],
   testPathIgnorePatterns: ['/node_modules/', '/dist/'],
   moduleFileExtensions: ['ts', 'js', 'json'],
+  moduleNameMapper: {
+    '^feed$': '<rootDir>/node_modules/feed/lib/feed.js',
+  },
+  transformIgnorePatterns: ['/node_modules/(?!feed/)'],
 };
 
 export default config;

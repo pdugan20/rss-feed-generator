@@ -1,16 +1,16 @@
 import scraper from '../../lib/scraper';
 import cache from '../../lib/cache';
-import rssGenerator from '../../lib/rss-generator';
+import feedGenerator from '../../lib/feed-generator';
 import { feedUrls } from '../../lib/feeds';
 import type schedulerType from '../../lib/scheduler';
 
 jest.mock('../../lib/scraper');
 jest.mock('../../lib/cache');
-jest.mock('../../lib/rss-generator');
+jest.mock('../../lib/feed-generator');
 
 const mockedScraper = jest.mocked(scraper);
 const mockedCache = jest.mocked(cache);
-const mockedRssGenerator = jest.mocked(rssGenerator);
+const mockedFeedGenerator = jest.mocked(feedGenerator);
 
 let scheduler: typeof schedulerType;
 
@@ -72,13 +72,17 @@ describe('Scheduler', () => {
         articles: mockArticles,
         pageTitle: 'Test Page',
       });
-      mockedRssGenerator.generateFeed.mockReturnValue('<rss>mock</rss>');
+      mockedFeedGenerator.generateFeeds.mockResolvedValue({
+        rss: '<rss>mock</rss>',
+        atom: '<feed>mock</feed>',
+        json: '{}',
+      });
 
       await scheduler.refreshFeeds();
 
       expect(mockedScraper.scrapeArticles).toHaveBeenCalledTimes(feedUrls.length);
       expect(mockedCache.del).toHaveBeenCalledTimes(feedUrls.length);
-      expect(mockedRssGenerator.generateFeed).toHaveBeenCalledTimes(feedUrls.length);
+      expect(mockedFeedGenerator.generateFeeds).toHaveBeenCalledTimes(feedUrls.length);
       expect(mockedCache.set).toHaveBeenCalledTimes(feedUrls.length);
     });
 
@@ -97,7 +101,7 @@ describe('Scheduler', () => {
 
       await scheduler.refreshFeeds();
 
-      expect(mockedRssGenerator.generateFeed).not.toHaveBeenCalled();
+      expect(mockedFeedGenerator.generateFeeds).not.toHaveBeenCalled();
       expect(mockedCache.set).not.toHaveBeenCalled();
     });
   });
