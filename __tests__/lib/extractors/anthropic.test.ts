@@ -1,5 +1,6 @@
-const cheerio = require('cheerio');
-const { extract } = require('../../../lib/extractors/anthropic');
+import * as cheerio from 'cheerio';
+import { extract } from '../../../lib/extractors/anthropic';
+import type { Article } from '../../../lib/types';
 
 const BASE_URL = 'https://www.anthropic.com/engineering';
 
@@ -69,7 +70,7 @@ describe('anthropic extractor', () => {
     const $ = cheerio.load(SAMPLE_HTML);
     const articles = extract($, BASE_URL);
     expect(articles[2].pubDate).toBeInstanceOf(Date);
-    expect(articles[2].pubDate.getFullYear()).toBe(2026);
+    expect(articles[2].pubDate!.getFullYear()).toBe(2026);
   });
 
   test('extracts image URL', () => {
@@ -87,7 +88,7 @@ describe('anthropic extractor', () => {
   test('skips nav links and short text links', () => {
     const $ = cheerio.load(SAMPLE_HTML);
     const articles = extract($, BASE_URL);
-    const links = articles.map((a) => a.link);
+    const links = articles.map((a: Article) => a.link);
     expect(links).not.toContain('https://www.anthropic.com/engineering');
   });
 

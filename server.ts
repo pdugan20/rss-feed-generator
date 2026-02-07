@@ -1,14 +1,18 @@
-require('dotenv').config();
-const Fastify = require('fastify');
-const cors = require('@fastify/cors');
-const scraper = require('./lib/scraper');
-const rssGenerator = require('./lib/rss-generator');
-const cache = require('./lib/cache');
-const { feedUrls, feeds } = require('./lib/feeds');
+import 'dotenv/config';
+import Fastify, { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
+import cors from '@fastify/cors';
+import scraper from './lib/scraper';
+import rssGenerator from './lib/rss-generator';
+import cache from './lib/cache';
+import { feedUrls, feeds } from './lib/feeds';
 
-const ALLOWED_FEEDS = feedUrls;
+const ALLOWED_FEEDS: string[] = feedUrls;
 
-function buildApp(opts = {}) {
+interface BuildAppOptions {
+  logger?: boolean;
+}
+
+function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   const fastify = Fastify({
     logger: opts.logger !== undefined ? opts.logger : true,
     trustProxy: true,
@@ -18,8 +22,8 @@ function buildApp(opts = {}) {
     origin: true,
   });
 
-  fastify.get('/', async (_request, _reply) => {
-    const examples = {};
+  fastify.get('/', async (_request: FastifyRequest, _reply: FastifyReply) => {
+    const examples: Record<string, string> = {};
     for (const feed of feeds) {
       examples[feed.label] = `/feed?url=${encodeURIComponent(feed.url)}`;
     }
@@ -38,7 +42,7 @@ function buildApp(opts = {}) {
     };
   });
 
-  fastify.get('/health', async (_request, _reply) => {
+  fastify.get('/health', async (_request: FastifyRequest, _reply: FastifyReply) => {
     return {
       status: 'ok',
       timestamp: new Date().toISOString(),
@@ -47,7 +51,7 @@ function buildApp(opts = {}) {
     };
   });
 
-  fastify.get('/status', async (_request, _reply) => {
+  fastify.get('/status', async (_request: FastifyRequest, _reply: FastifyReply) => {
     const feedStatus = feeds.map((feed) => {
       const cacheKey = `feed:${feed.url}`;
       const cached = cache.get(cacheKey);
@@ -69,13 +73,13 @@ function buildApp(opts = {}) {
   });
 
   // Manual refresh endpoint (protected with API key)
-  fastify.post('/refresh', async (request, reply) => {
-    const { api_key } = request.headers;
-    const { url } = request.body || {};
+  fastify.post('/refresh', async (request: FastifyRequest, reply: FastifyReply) => {
+    const apiKey = (request.headers as Record<string, string>)['api_key'];
+    const { url } = (request.body as { url?: string }) || {};
 
     // Check API key
     const validApiKey = process.env.API_KEY || 'your-secret-api-key';
-    if (api_key !== validApiKey) {
+    if (apiKey !== validApiKey) {
       return reply.code(401).send({
         error: 'Invalid or missing API key',
         hint: 'Include api_key in headers',
@@ -115,7 +119,12 @@ function buildApp(opts = {}) {
         }
       } else {
         // Refresh all allowed feeds
-        const results = [];
+        const results: {
+          url: string;
+          status: string;
+          articles_count?: number;
+          message?: string;
+        }[] = [];
 
         for (const feedUrl of ALLOWED_FEEDS) {
           try {
@@ -144,7 +153,7 @@ function buildApp(opts = {}) {
             results.push({
               url: feedUrl,
               status: 'error',
-              message: error.message,
+              message: (error as Error).message,
             });
           }
         }
@@ -160,73 +169,76 @@ function buildApp(opts = {}) {
       fastify.log.error(error);
       return reply.code(500).send({
         error: 'Failed to refresh feed',
-        message: error.message,
+        message: (error as Error).message,
       });
     }
   });
 
-  fastify.get('/feed', async (request, reply) => {
-    const { url } = request.query;
+  fastify.get(
+    '/feed',
+    async (request: FastifyRequest<{ Querystring: { url?: string } }>, reply: FastifyReply) => {
+      const { url } = request.query;
 
-    if (!url) {
-      return reply.code(400).send({
-        error: 'URL parameter is required',
-        example: '/feed?url=https://www.seattletimes.com/sports/mariners/',
-      });
-    }
-
-    // Check if URL is in whitelist
-    if (!ALLOWED_FEEDS.includes(url)) {
-      return reply.code(403).send({
-        error: 'This feed URL is not allowed',
-        allowed_feeds: ALLOWED_FEEDS,
-      });
-    }
-
-    try {
-      const cacheKey = `feed:${url}`;
-      const cachedFeed = cache.get(cacheKey);
-
-      if (cachedFeed) {
-        fastify.log.info(`Serving cached feed for ${url}`);
-        reply.header('Content-Type', 'application/rss+xml; charset=utf-8');
-        reply.header('X-Cache', 'HIT');
-        return reply.send(cachedFeed);
-      }
-
-      fastify.log.info(`Scraping ${url}`);
-      const { articles, pageTitle } = await scraper.scrapeArticles(url);
-
-      if (!articles || articles.length === 0) {
-        return reply.code(404).send({
-          error: 'No articles found at the specified URL',
-          url,
+      if (!url) {
+        return reply.code(400).send({
+          error: 'URL parameter is required',
+          example: '/feed?url=https://www.seattletimes.com/sports/mariners/',
         });
       }
 
-      const rssFeed = rssGenerator.generateFeed(url, articles, pageTitle);
+      // Check if URL is in whitelist
+      if (!ALLOWED_FEEDS.includes(url)) {
+        return reply.code(403).send({
+          error: 'This feed URL is not allowed',
+          allowed_feeds: ALLOWED_FEEDS,
+        });
+      }
 
-      cache.set(cacheKey, rssFeed);
+      try {
+        const cacheKey = `feed:${url}`;
+        const cachedFeed = cache.get(cacheKey);
 
-      reply.header('Content-Type', 'application/rss+xml; charset=utf-8');
-      reply.header('X-Cache', 'MISS');
-      return reply.send(rssFeed);
-    } catch (error) {
-      fastify.log.error(error);
-      return reply.code(500).send({
-        error: 'Failed to generate RSS feed',
-        message: error.message,
-      });
+        if (cachedFeed) {
+          fastify.log.info(`Serving cached feed for ${url}`);
+          reply.header('Content-Type', 'application/rss+xml; charset=utf-8');
+          reply.header('X-Cache', 'HIT');
+          return reply.send(cachedFeed);
+        }
+
+        fastify.log.info(`Scraping ${url}`);
+        const { articles, pageTitle } = await scraper.scrapeArticles(url);
+
+        if (!articles || articles.length === 0) {
+          return reply.code(404).send({
+            error: 'No articles found at the specified URL',
+            url,
+          });
+        }
+
+        const rssFeed = rssGenerator.generateFeed(url, articles, pageTitle);
+
+        cache.set(cacheKey, rssFeed);
+
+        reply.header('Content-Type', 'application/rss+xml; charset=utf-8');
+        reply.header('X-Cache', 'MISS');
+        return reply.send(rssFeed);
+      } catch (error) {
+        fastify.log.error(error);
+        return reply.code(500).send({
+          error: 'Failed to generate RSS feed',
+          message: (error as Error).message,
+        });
+      }
     }
-  });
+  );
 
   return fastify;
 }
 
 if (require.main === module) {
-  const start = async () => {
+  const start = async (): Promise<void> => {
     try {
-      const port = process.env.PORT || 3000;
+      const port = Number(process.env.PORT) || 3000;
       const host = process.env.HOST || '0.0.0.0';
       const fastify = buildApp();
 
@@ -240,4 +252,4 @@ if (require.main === module) {
   start();
 }
 
-module.exports = { buildApp, ALLOWED_FEEDS };
+export { buildApp, ALLOWED_FEEDS };

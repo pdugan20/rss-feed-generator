@@ -1,28 +1,22 @@
-jest.mock('../lib/scraper', () => ({
-  scrapeArticles: jest.fn(),
-}));
+import scraper from '../lib/scraper';
+import cache from '../lib/cache';
+import rssGenerator from '../lib/rss-generator';
+import { buildApp, ALLOWED_FEEDS } from '../server';
+import { feedUrls, feeds } from '../lib/feeds';
+import type { FastifyInstance } from 'fastify';
 
-jest.mock('../lib/cache', () => ({
-  get: jest.fn(),
-  set: jest.fn(),
-  del: jest.fn(),
-  flushAll: jest.fn(),
-}));
+jest.mock('../lib/scraper');
+jest.mock('../lib/cache');
+jest.mock('../lib/rss-generator');
 
-jest.mock('../lib/rss-generator', () => ({
-  generateFeed: jest.fn(),
-}));
-
-const scraper = require('../lib/scraper');
-const cache = require('../lib/cache');
-const rssGenerator = require('../lib/rss-generator');
-const { buildApp, ALLOWED_FEEDS } = require('../server');
-const { feedUrls, feeds } = require('../lib/feeds');
+const mockedScraper = jest.mocked(scraper);
+const mockedCache = jest.mocked(cache);
+const mockedRssGenerator = jest.mocked(rssGenerator);
 
 const TEST_API_KEY = 'test-api-key-12345';
 const MARINERS_URL = 'https://www.seattletimes.com/sports/mariners/';
 
-let app;
+let app: FastifyInstance;
 
 beforeAll(() => {
   process.env.API_KEY = TEST_API_KEY;
@@ -30,7 +24,7 @@ beforeAll(() => {
 
 beforeEach(async () => {
   jest.clearAllMocks();
-  cache.get.mockReturnValue(undefined);
+  mockedCache.get.mockReturnValue(undefined);
   app = buildApp({ logger: false });
   await app.ready();
 });
@@ -96,7 +90,7 @@ describe('GET /feed', () => {
   });
 
   test('returns cached feed with X-Cache HIT', async () => {
-    cache.get.mockReturnValue('<rss>cached</rss>');
+    mockedCache.get.mockReturnValue('<rss>cached</rss>');
 
     const response = await app.inject({
       method: 'GET',
@@ -107,16 +101,25 @@ describe('GET /feed', () => {
     expect(response.headers['x-cache']).toBe('HIT');
     expect(response.headers['content-type']).toContain('application/rss+xml');
     expect(response.body).toBe('<rss>cached</rss>');
-    expect(scraper.scrapeArticles).not.toHaveBeenCalled();
+    expect(mockedScraper.scrapeArticles).not.toHaveBeenCalled();
   });
 
   test('scrapes and returns feed with X-Cache MISS on cache miss', async () => {
-    cache.get.mockReturnValue(undefined);
-    scraper.scrapeArticles.mockResolvedValue({
-      articles: [{ title: 'Test Article', link: 'https://example.com/1' }],
+    mockedCache.get.mockReturnValue(undefined);
+    mockedScraper.scrapeArticles.mockResolvedValue({
+      articles: [
+        {
+          title: 'Test Article',
+          link: 'https://example.com/1',
+          description: 'desc',
+          pubDate: new Date(),
+          imageUrl: null,
+          guid: 'https://example.com/1',
+        },
+      ],
       pageTitle: 'Test Page',
     });
-    rssGenerator.generateFeed.mockReturnValue('<rss>fresh</rss>');
+    mockedRssGenerator.generateFeed.mockReturnValue('<rss>fresh</rss>');
 
     const response = await app.inject({
       method: 'GET',
@@ -126,13 +129,13 @@ describe('GET /feed', () => {
     expect(response.statusCode).toBe(200);
     expect(response.headers['x-cache']).toBe('MISS');
     expect(response.body).toBe('<rss>fresh</rss>');
-    expect(scraper.scrapeArticles).toHaveBeenCalledWith(MARINERS_URL);
-    expect(cache.set).toHaveBeenCalled();
+    expect(mockedScraper.scrapeArticles).toHaveBeenCalledWith(MARINERS_URL);
+    expect(mockedCache.set).toHaveBeenCalled();
   });
 
   test('returns 404 when scraper finds no articles', async () => {
-    cache.get.mockReturnValue(undefined);
-    scraper.scrapeArticles.mockResolvedValue({ articles: [], pageTitle: 'Empty' });
+    mockedCache.get.mockReturnValue(undefined);
+    mockedScraper.scrapeArticles.mockResolvedValue({ articles: [], pageTitle: 'Empty' });
 
     const response = await app.inject({
       method: 'GET',
@@ -168,11 +171,20 @@ describe('POST /refresh', () => {
   });
 
   test('refreshes all feeds with valid API key', async () => {
-    scraper.scrapeArticles.mockResolvedValue({
-      articles: [{ title: 'Test', link: 'https://example.com/1' }],
+    mockedScraper.scrapeArticles.mockResolvedValue({
+      articles: [
+        {
+          title: 'Test',
+          link: 'https://example.com/1',
+          description: 'desc',
+          pubDate: new Date(),
+          imageUrl: null,
+          guid: 'https://example.com/1',
+        },
+      ],
       pageTitle: 'Test',
     });
-    rssGenerator.generateFeed.mockReturnValue('<rss>refreshed</rss>');
+    mockedRssGenerator.generateFeed.mockReturnValue('<rss>refreshed</rss>');
 
     const response = await app.inject({
       method: 'POST',
@@ -188,15 +200,24 @@ describe('POST /refresh', () => {
     const body = JSON.parse(response.body);
     expect(body.status).toBe('success');
     expect(body.results).toHaveLength(feedUrls.length);
-    expect(scraper.scrapeArticles).toHaveBeenCalledTimes(feedUrls.length);
+    expect(mockedScraper.scrapeArticles).toHaveBeenCalledTimes(feedUrls.length);
   });
 
   test('refreshes specific feed with valid API key and URL', async () => {
-    scraper.scrapeArticles.mockResolvedValue({
-      articles: [{ title: 'Test', link: 'https://example.com/1' }],
+    mockedScraper.scrapeArticles.mockResolvedValue({
+      articles: [
+        {
+          title: 'Test',
+          link: 'https://example.com/1',
+          description: 'desc',
+          pubDate: new Date(),
+          imageUrl: null,
+          guid: 'https://example.com/1',
+        },
+      ],
       pageTitle: 'Test',
     });
-    rssGenerator.generateFeed.mockReturnValue('<rss>refreshed</rss>');
+    mockedRssGenerator.generateFeed.mockReturnValue('<rss>refreshed</rss>');
 
     const response = await app.inject({
       method: 'POST',
@@ -212,7 +233,7 @@ describe('POST /refresh', () => {
     const body = JSON.parse(response.body);
     expect(body.status).toBe('success');
     expect(body.articles_count).toBe(1);
-    expect(scraper.scrapeArticles).toHaveBeenCalledWith(MARINERS_URL);
+    expect(mockedScraper.scrapeArticles).toHaveBeenCalledWith(MARINERS_URL);
   });
 
   test('returns 403 for non-whitelisted URL in refresh', async () => {
@@ -232,7 +253,7 @@ describe('POST /refresh', () => {
 
 describe('GET /status', () => {
   test('returns degraded when no feeds are cached', async () => {
-    cache.get.mockReturnValue(undefined);
+    mockedCache.get.mockReturnValue(undefined);
     const response = await app.inject({ method: 'GET', url: '/status' });
     expect(response.statusCode).toBe(200);
     const body = JSON.parse(response.body);
@@ -248,7 +269,7 @@ describe('GET /status', () => {
   });
 
   test('returns healthy when all feeds are cached', async () => {
-    cache.get.mockReturnValue('<rss>cached</rss>');
+    mockedCache.get.mockReturnValue('<rss>cached</rss>');
     const response = await app.inject({ method: 'GET', url: '/status' });
     expect(response.statusCode).toBe(200);
     const body = JSON.parse(response.body);
@@ -259,7 +280,7 @@ describe('GET /status', () => {
   });
 
   test('returns degraded when some feeds are cached', async () => {
-    cache.get.mockImplementation((key) => {
+    mockedCache.get.mockImplementation((key: string | number) => {
       if (key === `feed:${feeds[0].url}`) return '<rss>cached</rss>';
       return undefined;
     });

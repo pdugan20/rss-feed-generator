@@ -1,7 +1,20 @@
-const RSS = require('rss');
+import RSS from 'rss';
+import type { Article } from './types';
+
+interface RSSItem {
+  title: string;
+  description: string;
+  url: string;
+  guid: string;
+  date: Date;
+  enclosure?: { url: string; type: string };
+  custom_elements?: Record<string, unknown>[];
+  author?: string;
+  categories?: string[];
+}
 
 class RSSGenerator {
-  generateFeed(sourceUrl, articles, pageTitle) {
+  generateFeed(sourceUrl: string, articles: Article[], pageTitle: string): string {
     const siteUrl = new URL(sourceUrl);
     const siteName = this.extractSiteName(siteUrl);
 
@@ -18,12 +31,12 @@ class RSSGenerator {
       language: 'en',
       categories: this.extractCategories(sourceUrl),
       pubDate: new Date(),
-      ttl: '1440', // 24 hours in minutes
+      ttl: 1440, // 24 hours in minutes
       generator: 'RSS Feed Generator Service',
     });
 
     articles.forEach((article) => {
-      const item = {
+      const item: RSSItem = {
         title: article.title,
         description: article.description || article.title,
         url: article.link,
@@ -49,21 +62,13 @@ class RSSGenerator {
         ];
       }
 
-      if (article.author) {
-        item.author = article.author;
-      }
-
-      if (article.categories && article.categories.length > 0) {
-        item.categories = article.categories;
-      }
-
       feed.item(item);
     });
 
     return feed.xml({ indent: true });
   }
 
-  extractSiteName(url) {
+  extractSiteName(url: URL): string {
     const hostname = url.hostname;
 
     const parts = hostname.split('.');
@@ -75,16 +80,16 @@ class RSSGenerator {
     return name.charAt(0).toUpperCase() + name.slice(1);
   }
 
-  findFavicon(articles) {
+  findFavicon(articles: Article[]): string | undefined {
     for (const article of articles) {
       if (article.imageUrl) {
         return article.imageUrl;
       }
     }
-    return null;
+    return undefined;
   }
 
-  extractCategories(url) {
+  extractCategories(url: string): string[] {
     const path = new URL(url).pathname;
     const segments = path.split('/').filter((s) => s.length > 0);
 
@@ -98,4 +103,4 @@ class RSSGenerator {
   }
 }
 
-module.exports = new RSSGenerator();
+export = new RSSGenerator();

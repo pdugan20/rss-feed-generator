@@ -1,19 +1,19 @@
-const path = require('path');
-const fs = require('fs');
-const { feeds } = require('../../lib/feeds');
-const { getExtractor } = require('../../lib/extract');
+import path from 'path';
+import fs from 'fs';
+import { feeds } from '../../lib/feeds';
+import { getExtractor } from '../../lib/extract';
 
 describe('architecture consistency', () => {
   const extractorNames = [...new Set(feeds.map((f) => f.extractor))];
 
   test.each(extractorNames)('extractor "%s" is registered and exports extract()', (name) => {
     const feed = feeds.find((f) => f.extractor === name);
-    const extractor = getExtractor(feed.url);
+    const extractor = getExtractor(feed!.url);
     expect(typeof extractor.extract).toBe('function');
   });
 
   test.each(extractorNames)('extractor "%s" has a test file', (name) => {
-    const testPath = path.join(__dirname, 'extractors', `${name}.test.js`);
+    const testPath = path.join(__dirname, 'extractors', `${name}.test.ts`);
     expect(fs.existsSync(testPath)).toBe(true);
   });
 

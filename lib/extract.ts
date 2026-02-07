@@ -1,18 +1,19 @@
-const { getExtractorName } = require('./feeds');
+import { getExtractorName } from './feeds';
+import type { Extractor } from './types';
 
-const extractors = {
+const extractors: Record<string, Extractor> = {
   'seattle-times': require('./extractors/seattle-times'),
   anthropic: require('./extractors/anthropic'),
   'claude-blog': require('./extractors/claude-blog'),
   generic: require('./extractors/generic'),
 };
 
-function getExtractor(url) {
+function getExtractor(url: string): Extractor {
   const name = getExtractorName(url);
-  return extractors[name] || extractors.generic;
+  return (name && extractors[name]) || extractors.generic;
 }
 
-function resolveUrl(relativeUrl, baseUrl) {
+function resolveUrl(relativeUrl: string | undefined | null, baseUrl: string): string | null {
   if (!relativeUrl) return null;
 
   try {
@@ -27,7 +28,7 @@ function resolveUrl(relativeUrl, baseUrl) {
   }
 }
 
-function parseDate(dateText) {
+function parseDate(dateText: string | undefined | null): Date | null {
   if (!dateText) return null;
 
   try {
@@ -38,4 +39,4 @@ function parseDate(dateText) {
   }
 }
 
-module.exports = { getExtractor, resolveUrl, parseDate };
+export { getExtractor, resolveUrl, parseDate };

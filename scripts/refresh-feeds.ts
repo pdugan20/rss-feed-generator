@@ -1,10 +1,15 @@
 #!/usr/bin/env node
 
-require('dotenv').config({ path: require('path').join(__dirname, '..', '.env') });
-const scheduler = require('../lib/scheduler');
-const scraper = require('../lib/scraper');
+import path from 'path';
+import dotenv from 'dotenv';
 
-async function main() {
+// Load .env from project root
+dotenv.config({ path: path.join(__dirname, '..', '.env') });
+
+import scheduler from '../lib/scheduler';
+import scraper from '../lib/scraper';
+
+async function main(): Promise<void> {
   console.log(`[${new Date().toISOString()}] Railway Cron: Starting scheduled feed refresh...`);
 
   try {

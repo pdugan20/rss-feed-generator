@@ -1,5 +1,5 @@
-const cheerio = require('cheerio');
-const { extract } = require('../../../lib/extractors/seattle-times');
+import * as cheerio from 'cheerio';
+import { extract } from '../../../lib/extractors/seattle-times';
 
 const BASE_URL = 'https://www.seattletimes.com/sports/mariners/';
 
@@ -60,7 +60,7 @@ describe('seattle-times extractor', () => {
     const $ = cheerio.load(SAMPLE_HTML);
     const articles = extract($, BASE_URL);
     expect(articles[0].pubDate).toBeInstanceOf(Date);
-    expect(articles[0].pubDate.getFullYear()).toBe(2025);
+    expect(articles[0].pubDate!.getFullYear()).toBe(2025);
   });
 
   test('returns null pubDate when no date found', () => {

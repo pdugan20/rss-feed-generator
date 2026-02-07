@@ -1,15 +1,19 @@
-const puppeteer = require('puppeteer');
-const cheerio = require('cheerio');
-const { getExtractor } = require('./extract');
+import puppeteer, { Browser } from 'puppeteer';
+import * as cheerio from 'cheerio';
+import { getExtractor } from './extract';
+import type { Article } from './types';
+
+interface ScrapeResult {
+  articles: Article[];
+  pageTitle: string;
+}
 
 class Scraper {
-  constructor() {
-    this.browser = null;
-  }
+  private browser: Browser | null = null;
 
-  async initBrowser() {
+  async initBrowser(): Promise<Browser> {
     if (!this.browser) {
-      let executablePath = process.env.PUPPETEER_EXECUTABLE_PATH;
+      let executablePath: string | undefined = process.env.PUPPETEER_EXECUTABLE_PATH;
 
       // If env var is set but doesn't work, try undefined (let Puppeteer find it)
       if (executablePath === '/usr/bin/chromium') {
@@ -17,7 +21,7 @@ class Scraper {
       }
 
       this.browser = await puppeteer.launch({
-        headless: 'new',
+        headless: true,
         executablePath,
         args: [
           '--no-sandbox',
@@ -32,7 +36,7 @@ class Scraper {
     return this.browser;
   }
 
-  async scrapeArticles(url) {
+  async scrapeArticles(url: string): Promise<ScrapeResult> {
     const browser = await this.initBrowser();
     const page = await browser.newPage();
 
@@ -66,7 +70,7 @@ class Scraper {
     }
   }
 
-  async close() {
+  async close(): Promise<void> {
     if (this.browser) {
       await this.browser.close();
       this.browser = null;
@@ -74,4 +78,4 @@ class Scraper {
   }
 }
 
-module.exports = new Scraper();
+export = new Scraper();

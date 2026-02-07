@@ -1,4 +1,4 @@
-const { getExtractor, resolveUrl, parseDate } = require('../../lib/extract');
+import { getExtractor, resolveUrl, parseDate } from '../../lib/extract';
 
 describe('resolveUrl', () => {
   const base = 'https://www.seattletimes.com/sports/mariners/';
@@ -40,7 +40,7 @@ describe('parseDate', () => {
   test('ISO date string parses correctly', () => {
     const result = parseDate('2025-06-15T10:00:00Z');
     expect(result).toBeInstanceOf(Date);
-    expect(result.toISOString()).toBe('2025-06-15T10:00:00.000Z');
+    expect(result!.toISOString()).toBe('2025-06-15T10:00:00.000Z');
   });
 
   test('date-only string parses', () => {

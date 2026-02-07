@@ -1,4 +1,4 @@
-const NodeCache = require('node-cache');
+import NodeCache from 'node-cache';
 
 const cache = new NodeCache({
   stdTTL: 86400, // 24 hours in seconds
@@ -7,8 +7,8 @@ const cache = new NodeCache({
   maxKeys: 100,
 });
 
-cache.on('expired', (key, _value) => {
+cache.on('expired', (key: string, _value: unknown) => {
   console.log(`Cache expired for key: ${key}`);
 });
 
-module.exports = cache;
+export = cache;

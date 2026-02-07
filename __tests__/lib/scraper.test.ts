@@ -1,4 +1,4 @@
-const scraper = require('../../lib/scraper');
+import scraper from '../../lib/scraper';
 
 describe('Scraper module', () => {
   test('exports scrapeArticles method', () => {

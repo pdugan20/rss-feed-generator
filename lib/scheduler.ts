@@ -1,15 +1,18 @@
-const cache = require('./cache');
-const scraper = require('./scraper');
-const { feedUrls } = require('./feeds');
+import cache from './cache';
+import scraper from './scraper';
+import rssGenerator from './rss-generator';
+import { feedUrls } from './feeds';
 
 class Scheduler {
+  feeds: string[];
+
   constructor() {
     this.feeds = [...feedUrls];
   }
 
   // This method is called by Railway Cron or manual refresh
 
-  async refreshFeeds() {
+  async refreshFeeds(): Promise<void> {
     for (const feedUrl of this.feeds) {
       try {
         console.log(`Refreshing feed: ${feedUrl}`);
@@ -23,7 +26,6 @@ class Scheduler {
 
         if (articles && articles.length > 0) {
           // Generate and cache the RSS feed
-          const rssGenerator = require('./rss-generator');
           const rssFeed = rssGenerator.generateFeed(feedUrl, articles, pageTitle);
           cache.set(cacheKey, rssFeed);
 
@@ -32,7 +34,7 @@ class Scheduler {
           console.log(`No articles found for: ${feedUrl}`);
         }
       } catch (error) {
-        console.error(`Error refreshing feed ${feedUrl}:`, error.message);
+        console.error(`Error refreshing feed ${feedUrl}:`, (error as Error).message);
       }
     }
 
@@ -40,14 +42,14 @@ class Scheduler {
   }
 
   // Method to manually add/remove feeds
-  addFeed(url) {
+  addFeed(url: string): void {
     if (!this.feeds.includes(url)) {
       this.feeds.push(url);
       console.log(`Added feed: ${url}`);
     }
   }
 
-  removeFeed(url) {
+  removeFeed(url: string): void {
     const index = this.feeds.indexOf(url);
     if (index > -1) {
       this.feeds.splice(index, 1);
@@ -55,9 +57,9 @@ class Scheduler {
     }
   }
 
-  getFeeds() {
+  getFeeds(): string[] {
     return this.feeds;
   }
 }
 
-module.exports = new Scheduler();
+export = new Scheduler();

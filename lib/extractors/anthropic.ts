@@ -1,8 +1,10 @@
-const { resolveUrl, parseDate } = require('../extract');
+import type { CheerioAPI } from 'cheerio';
+import { resolveUrl, parseDate } from '../extract';
+import type { Article } from '../types';
 
-function extract($, _url) {
-  const articles = [];
-  const seenUrls = new Set();
+function extract($: CheerioAPI, _url: string): Article[] {
+  const articles: Article[] = [];
+  const seenUrls = new Set<string>();
   const baseUrl = 'https://www.anthropic.com';
 
   // Strategy 1: Find links to /engineering/ articles
@@ -51,7 +53,7 @@ function extract($, _url) {
     }
 
     // Extract date
-    let pubDate = null;
+    let pubDate: Date | null = null;
     if ($card.length > 0) {
       const $time = $card.find('time');
       if ($time.length > 0) {
@@ -68,7 +70,7 @@ function extract($, _url) {
     }
 
     // Extract image
-    let imageUrl = null;
+    let imageUrl: string | null = null;
     if ($card.length > 0) {
       const imgSrc =
         $card.find('img').first().attr('src') || $card.find('img').first().attr('data-src');
@@ -88,4 +90,4 @@ function extract($, _url) {
   return articles;
 }
 
-module.exports = { extract };
+export { extract };

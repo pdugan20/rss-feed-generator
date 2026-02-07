@@ -1,5 +1,5 @@
-const cheerio = require('cheerio');
-const { extract } = require('../../../lib/extractors/generic');
+import * as cheerio from 'cheerio';
+import { extract } from '../../../lib/extractors/generic';
 
 describe('generic extractor', () => {
   test('extracts from article elements', () => {

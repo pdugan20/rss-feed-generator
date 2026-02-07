@@ -1,4 +1,6 @@
-const feeds = [
+import { FeedConfig } from './types';
+
+const feeds: FeedConfig[] = [
   {
     url: 'https://www.seattletimes.com/sports/washington-huskies-football/',
     extractor: 'seattle-times',
@@ -21,11 +23,11 @@ const feeds = [
   },
 ];
 
-const feedUrls = feeds.map((f) => f.url);
+const feedUrls: string[] = feeds.map((f) => f.url);
 
-function getExtractorName(url) {
+function getExtractorName(url: string): string | null {
   const entry = feeds.find((f) => f.url === url);
   return entry ? entry.extractor : null;
 }
 
-module.exports = { feeds, feedUrls, getExtractorName };
+export { feeds, feedUrls, getExtractorName };

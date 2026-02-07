@@ -1,4 +1,4 @@
-const { feeds, feedUrls, getExtractorName } = require('../../lib/feeds');
+import { feeds, feedUrls, getExtractorName } from '../../lib/feeds';
 
 describe('feeds config', () => {
   test('feeds array is not empty', () => {

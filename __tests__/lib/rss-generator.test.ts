@@ -1,8 +1,9 @@
-const rssGenerator = require('../../lib/rss-generator');
+import rssGenerator from '../../lib/rss-generator';
+import type { Article } from '../../lib/types';
 
 const MARINERS_URL = 'https://www.seattletimes.com/sports/mariners/';
 
-const mockArticles = [
+const mockArticles: Article[] = [
   {
     title: 'Mariners Win Big Game',
     link: 'https://www.seattletimes.com/sports/mariners/mariners-win-big/',
@@ -54,7 +55,7 @@ describe('RSSGenerator', () => {
     });
 
     test('article without image has no enclosure for that item', () => {
-      const articlesNoImages = [
+      const articlesNoImages: Article[] = [
         {
           title: 'No Image Article',
           link: 'https://example.com/no-image',
@@ -111,13 +112,13 @@ describe('RSSGenerator', () => {
       expect(rssGenerator.findFavicon(mockArticles)).toBe('https://example.com/mariners.jpg');
     });
 
-    test('returns null when no articles have images', () => {
-      const noImages = [{ title: 'Test', imageUrl: null }];
-      expect(rssGenerator.findFavicon(noImages)).toBeNull();
+    test('returns undefined when no articles have images', () => {
+      const noImages: Partial<Article>[] = [{ title: 'Test', imageUrl: null }];
+      expect(rssGenerator.findFavicon(noImages as Article[])).toBeUndefined();
     });
 
-    test('returns null for empty array', () => {
-      expect(rssGenerator.findFavicon([])).toBeNull();
+    test('returns undefined for empty array', () => {
+      expect(rssGenerator.findFavicon([])).toBeUndefined();
     });
   });
 });

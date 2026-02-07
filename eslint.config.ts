@@ -1,21 +1,17 @@
-const js = require('@eslint/js');
-const prettier = require('eslint-plugin-prettier');
-const prettierConfig = require('eslint-config-prettier');
+import js from '@eslint/js';
+import prettier from 'eslint-plugin-prettier';
+import prettierConfig from 'eslint-config-prettier';
+import tseslint from '@typescript-eslint/eslint-plugin';
+import tsParser from '@typescript-eslint/parser';
+import type { Linter } from 'eslint';
 
-module.exports = [
+const config: Linter.Config[] = [
   {
-    ignores: [
-      'node_modules/**',
-      'dist/**',
-      'build/**',
-      'coverage/**',
-      'inspect-page.js',
-      'test-dates.js',
-      'page-content.html',
-    ],
+    ignores: ['node_modules/**', 'dist/**', 'build/**', 'coverage/**'],
   },
   js.configs.recommended,
   {
+    files: ['**/*.{js,ts}'],
     plugins: {
       prettier,
     },
@@ -48,7 +44,22 @@ module.exports = [
     },
   },
   {
-    files: ['**/__tests__/**/*.js', '**/*.test.js'],
+    files: ['**/*.ts'],
+    plugins: {
+      '@typescript-eslint': tseslint,
+    },
+    languageOptions: {
+      parser: tsParser,
+    },
+    rules: {
+      'no-unused-vars': 'off',
+      '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
+      'no-undef': 'off',
+      'no-redeclare': 'off',
+    },
+  },
+  {
+    files: ['**/__tests__/**/*.ts', '**/*.test.ts'],
     languageOptions: {
       globals: {
         describe: 'readonly',
@@ -64,3 +75,5 @@ module.exports = [
     },
   },
 ];
+
+export default config;

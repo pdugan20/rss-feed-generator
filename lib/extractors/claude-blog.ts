@@ -1,8 +1,10 @@
-const { resolveUrl, parseDate } = require('../extract');
+import type { CheerioAPI } from 'cheerio';
+import { resolveUrl, parseDate } from '../extract';
+import type { Article } from '../types';
 
-function extract($, _url) {
-  const articles = [];
-  const seenUrls = new Set();
+function extract($: CheerioAPI, _url: string): Article[] {
+  const articles: Article[] = [];
+  const seenUrls = new Set<string>();
   const baseUrl = 'https://claude.com';
 
   // Strategy 1: Webflow CMS items
@@ -32,7 +34,7 @@ function extract($, _url) {
     seenUrls.add(fullUrl);
 
     // Extract date from metadata
-    let pubDate = null;
+    let pubDate: Date | null = null;
     const $meta = $item.find('.card_blog_list_meta, [class*="meta"], [class*="date"]').first();
     if ($meta.length > 0) {
       const $time = $meta.find('time');
@@ -53,7 +55,7 @@ function extract($, _url) {
         .trim() || '';
 
     // Extract image
-    let imageUrl = null;
+    let imageUrl: string | null = null;
     const $img = $item.find('.card_blog_visual_wrap img, img').first();
     if ($img.length > 0) {
       const imgSrc = $img.attr('src') || $img.attr('data-src');
@@ -107,4 +109,4 @@ function extract($, _url) {
   return articles;
 }
 
-module.exports = { extract };
+export { extract };

@@ -1,5 +1,5 @@
-const cheerio = require('cheerio');
-const { extract } = require('../../../lib/extractors/claude-blog');
+import * as cheerio from 'cheerio';
+import { extract } from '../../../lib/extractors/claude-blog';
 
 const BASE_URL = 'https://claude.com/blog';
 
@@ -67,7 +67,7 @@ describe('claude-blog extractor', () => {
     const $ = cheerio.load(SAMPLE_HTML);
     const articles = extract($, BASE_URL);
     expect(articles[0].pubDate).toBeInstanceOf(Date);
-    expect(articles[0].pubDate.getMonth()).toBe(0); // January
+    expect(articles[0].pubDate!.getMonth()).toBe(0); // January
   });
 
   test('extracts image URL', () => {

@@ -1,0 +1,20 @@
+import type { CheerioAPI } from 'cheerio';
+
+export interface Article {
+  title: string;
+  link: string;
+  description: string;
+  pubDate: Date | null;
+  imageUrl: string | null;
+  guid: string;
+}
+
+export interface FeedConfig {
+  url: string;
+  extractor: string;
+  label: string;
+}
+
+export interface Extractor {
+  extract: ($: CheerioAPI, url: string) => Article[];
+}

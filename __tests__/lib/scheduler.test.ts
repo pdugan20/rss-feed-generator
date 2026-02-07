@@ -1,23 +1,18 @@
-jest.mock('../../lib/scraper', () => ({
-  scrapeArticles: jest.fn(),
-}));
+import scraper from '../../lib/scraper';
+import cache from '../../lib/cache';
+import rssGenerator from '../../lib/rss-generator';
+import { feedUrls } from '../../lib/feeds';
+import type schedulerType from '../../lib/scheduler';
 
-jest.mock('../../lib/cache', () => ({
-  del: jest.fn(),
-  set: jest.fn(),
-  get: jest.fn(),
-}));
+jest.mock('../../lib/scraper');
+jest.mock('../../lib/cache');
+jest.mock('../../lib/rss-generator');
 
-jest.mock('../../lib/rss-generator', () => ({
-  generateFeed: jest.fn(),
-}));
+const mockedScraper = jest.mocked(scraper);
+const mockedCache = jest.mocked(cache);
+const mockedRssGenerator = jest.mocked(rssGenerator);
 
-const scraper = require('../../lib/scraper');
-const cache = require('../../lib/cache');
-const rssGenerator = require('../../lib/rss-generator');
-const { feedUrls } = require('../../lib/feeds');
-
-let scheduler;
+let scheduler: typeof schedulerType;
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -63,38 +58,47 @@ describe('Scheduler', () => {
 
   describe('refreshFeeds', () => {
     test('scrapes and caches each feed', async () => {
-      const mockArticles = [{ title: 'Test', link: 'https://example.com/1', description: 'desc' }];
-      scraper.scrapeArticles.mockResolvedValue({
+      const mockArticles = [
+        {
+          title: 'Test',
+          link: 'https://example.com/1',
+          description: 'desc',
+          pubDate: new Date(),
+          imageUrl: null,
+          guid: 'https://example.com/1',
+        },
+      ];
+      mockedScraper.scrapeArticles.mockResolvedValue({
         articles: mockArticles,
         pageTitle: 'Test Page',
       });
-      rssGenerator.generateFeed.mockReturnValue('<rss>mock</rss>');
+      mockedRssGenerator.generateFeed.mockReturnValue('<rss>mock</rss>');
 
       await scheduler.refreshFeeds();
 
-      expect(scraper.scrapeArticles).toHaveBeenCalledTimes(feedUrls.length);
-      expect(cache.del).toHaveBeenCalledTimes(feedUrls.length);
-      expect(rssGenerator.generateFeed).toHaveBeenCalledTimes(feedUrls.length);
-      expect(cache.set).toHaveBeenCalledTimes(feedUrls.length);
+      expect(mockedScraper.scrapeArticles).toHaveBeenCalledTimes(feedUrls.length);
+      expect(mockedCache.del).toHaveBeenCalledTimes(feedUrls.length);
+      expect(mockedRssGenerator.generateFeed).toHaveBeenCalledTimes(feedUrls.length);
+      expect(mockedCache.set).toHaveBeenCalledTimes(feedUrls.length);
     });
 
     test('handles scraper errors gracefully', async () => {
-      scraper.scrapeArticles.mockRejectedValue(new Error('Network error'));
+      mockedScraper.scrapeArticles.mockRejectedValue(new Error('Network error'));
 
       await expect(scheduler.refreshFeeds()).resolves.toBeUndefined();
-      expect(cache.set).not.toHaveBeenCalled();
+      expect(mockedCache.set).not.toHaveBeenCalled();
     });
 
     test('skips caching when no articles found', async () => {
-      scraper.scrapeArticles.mockResolvedValue({
+      mockedScraper.scrapeArticles.mockResolvedValue({
         articles: [],
         pageTitle: 'Empty Page',
       });
 
       await scheduler.refreshFeeds();
 
-      expect(rssGenerator.generateFeed).not.toHaveBeenCalled();
-      expect(cache.set).not.toHaveBeenCalled();
+      expect(mockedRssGenerator.generateFeed).not.toHaveBeenCalled();
+      expect(mockedCache.set).not.toHaveBeenCalled();
     });
   });
 });

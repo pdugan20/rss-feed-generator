@@ -1,4 +1,4 @@
-const cache = require('../../lib/cache');
+import cache from '../../lib/cache';
 
 afterEach(() => {
   cache.flushAll();

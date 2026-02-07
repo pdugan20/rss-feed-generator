@@ -1,8 +1,10 @@
-const { resolveUrl, parseDate } = require('../extract');
+import type { CheerioAPI } from 'cheerio';
+import { resolveUrl, parseDate } from '../extract';
+import type { Article } from '../types';
 
-function extract($, url) {
-  const articles = [];
-  const seenUrls = new Set();
+function extract($: CheerioAPI, url: string): Article[] {
+  const articles: Article[] = [];
+  const seenUrls = new Set<string>();
 
   // Primary strategy: .results-story elements
   $('.results-story').each((_index, element) => {
@@ -23,7 +25,7 @@ function extract($, url) {
     const description = $story.find('.results-story-excerpt').text().trim() || '';
 
     const $timeElem = $story.find('.results-story-date time');
-    let pubDate = null;
+    let pubDate: Date | null = null;
 
     if ($timeElem.length > 0) {
       const datetime = $timeElem.attr('datetime');
@@ -80,7 +82,7 @@ function extract($, url) {
           $story.find('[class*="excerpt"], [class*="summary"], p').first().text().trim() || '';
 
         const $timeElem = $story.find('time, [class*="date"]').first();
-        let pubDate = null;
+        let pubDate: Date | null = null;
 
         if ($timeElem.length > 0 && $timeElem.attr('datetime')) {
           pubDate = parseDate($timeElem.attr('datetime'));
@@ -106,4 +108,4 @@ function extract($, url) {
   return articles;
 }
 
-module.exports = { extract };
+export { extract };
