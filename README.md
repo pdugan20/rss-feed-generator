@@ -1,21 +1,35 @@
 # RSS Feed Generator
 
-A secure, whitelisted RSS feed generator for Seattle Times sports sections with automatic daily updates.
+A secure, whitelisted RSS feed generator with pluggable per-site extractors and automatic daily updates. Generates RSS 2.0 feeds from websites that don't provide their own.
 
 ## Features
 
 - **Whitelisted feeds only** - Restricted to pre-configured URLs
+- **Per-site extractors** - Dedicated scraping logic per website for accurate extraction
 - **Railway Cron scheduling** - Reliable scheduled updates via Railway's cron service
 - **API key protected** - Manual refresh requires authentication
 - **24-hour caching** - Balances freshness with server load
-- **Seattle Times optimized** - Custom selectors for accurate scraping
+- **Health monitoring** - `/status` endpoint reports per-feed cache health
 
 ## Supported Feeds
 
-This service is configured to work ONLY with these feeds:
+| Label                 | URL                                                                | Extractor     |
+| --------------------- | ------------------------------------------------------------------ | ------------- |
+| huskies               | `https://www.seattletimes.com/sports/washington-huskies-football/` | seattle-times |
+| mariners              | `https://www.seattletimes.com/sports/mariners/`                    | seattle-times |
+| anthropic-engineering | `https://www.anthropic.com/engineering`                            | anthropic     |
+| claude-blog           | `https://claude.com/blog`                                          | claude-blog   |
 
-- `https://www.seattletimes.com/sports/washington-huskies-football/`
-- `https://www.seattletimes.com/sports/mariners/`
+## Adding a New Site
+
+Adding a new feed requires exactly 4 file changes (enforced by architecture tests):
+
+1. Create `lib/extractors/<name>.js` -- export `{ extract }` where `extract($, url)` takes a Cheerio object and returns an array of articles
+2. Add entry to `lib/feeds.js` -- `{ url, extractor, label }`
+3. Register in `lib/extract.js` -- add `'<name>': require('./extractors/<name>')` to the registry
+4. Create `__tests__/lib/extractors/<name>.test.js` -- test against sample HTML fixtures
+
+The architecture consistency test (`__tests__/lib/architecture.test.js`) validates this contract on every test run.
 
 ## Setup
 
@@ -61,17 +75,23 @@ npm run dev
 
 ### `GET /`
 
-Service information and allowed feeds
+Service information, allowed feeds, and auto-generated examples.
 
 ### `GET /health`
 
-Health check endpoint
+Health check endpoint.
+
+### `GET /status`
+
+Per-feed cache status. Returns `"healthy"` when all feeds are cached, `"degraded"` when any are missing.
+
+```bash
+curl http://localhost:3000/status
+```
 
 ### `GET /feed?url={allowed_url}`
 
-Get RSS feed (only works with whitelisted URLs)
-
-**Example:**
+Get RSS feed (only works with whitelisted URLs).
 
 ```bash
 curl "http://localhost:3000/feed?url=https://www.seattletimes.com/sports/mariners/"
@@ -79,7 +99,7 @@ curl "http://localhost:3000/feed?url=https://www.seattletimes.com/sports/mariner
 
 ### `POST /refresh`
 
-Manually refresh feeds (requires API key)
+Manually refresh feeds (requires API key).
 
 **Refresh all feeds:**
 
@@ -99,27 +119,28 @@ curl -X POST http://localhost:3000/refresh \
   -d '{"url": "https://www.seattletimes.com/sports/mariners/"}'
 ```
 
+## Deploy Verification
+
+After pushing to Railway, verify the deployment:
+
+```bash
+# Requires BASE_URL and API_KEY environment variables
+scripts/verify-deploy.sh
+```
+
+The script checks `/status`, triggers `/refresh`, and validates each feed endpoint. See `scripts/verify-deploy.sh` for details.
+
 ## Deployment to Railway
 
 ### Web Service Setup
 
-1. **Push to GitHub:**
-
-   ```bash
-   git init
-   git add .
-   git commit -m "Initial commit"
-   git remote add origin YOUR_REPO_URL
-   git push -u origin main
-   ```
-
-2. **Configure Railway Web Service:**
+1. **Configure Railway Web Service:**
    - Create new project on Railway
    - Connect your GitHub repository
    - Railway will auto-detect Node.js
    - Start command: `npm start` (default)
 
-3. **Set Environment Variables:**
+2. **Set Environment Variables:**
    - `BASE_URL` - Your Railway app URL (e.g., `https://your-app.up.railway.app`)
    - `API_KEY` - Your secure API key (generate with `openssl rand -base64 32`)
    - `PORT` - Leave empty (Railway sets this automatically)
@@ -144,6 +165,16 @@ curl -X POST http://localhost:3000/refresh \
 4. **Deploy:**
    - Railway will run the cron service on schedule
 
+### Railway CLI (Optional)
+
+```bash
+brew install railway
+railway login
+railway link
+railway logs        # View live logs
+railway status      # Check deployment status
+```
+
 ## Update Schedule
 
 - **Automatic:** Configured via Railway Cron (recommended: daily at 6 AM PST using `0 13 * * *`)
@@ -162,6 +193,23 @@ npm test              # Run test suite
 
 Pre-commit hooks automatically lint and format staged files. Pre-push hooks run the test suite.
 
+## Architecture
+
+```text
+lib/
+  feeds.js              Single source of truth for feed URLs + extractor mappings
+  extract.js            Extractor registry + shared helpers (resolveUrl, parseDate)
+  extractors/
+    seattle-times.js    Seattle Times extraction
+    anthropic.js        Anthropic engineering blog extraction
+    claude-blog.js      Claude blog extraction
+    generic.js          Generic fallback extraction
+  scraper.js            Browser management only (Puppeteer)
+  scheduler.js          Scheduled feed refresh
+  rss-generator.js      RSS 2.0 XML generation
+  cache.js              In-memory cache (24h TTL)
+```
+
 ## Tech Stack
 
 - **Fastify** - High-performance web framework
@@ -170,6 +218,9 @@ Pre-commit hooks automatically lint and format staged files. Pre-push hooks run 
 - **Railway Cron** - Scheduled tasks
 - **RSS** - RSS 2.0 feed generation
 - **Node-Cache** - In-memory caching
+- **Jest** - Testing framework
+- **Husky + lint-staged** - Pre-commit/pre-push hooks
+- **ESLint + Prettier** - Linting and formatting
 
 ## License
 
