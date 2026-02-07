@@ -17,6 +17,7 @@ const scraper = require('../lib/scraper');
 const cache = require('../lib/cache');
 const rssGenerator = require('../lib/rss-generator');
 const { buildApp, ALLOWED_FEEDS } = require('../server');
+const { feedUrls, feeds } = require('../lib/feeds');
 
 const TEST_API_KEY = 'test-api-key-12345';
 const MARINERS_URL = 'https://www.seattletimes.com/sports/mariners/';
@@ -39,9 +40,8 @@ afterEach(async () => {
 });
 
 describe('ALLOWED_FEEDS', () => {
-  test('exports the feed whitelist', () => {
-    expect(ALLOWED_FEEDS).toContain(MARINERS_URL);
-    expect(ALLOWED_FEEDS).toHaveLength(2);
+  test('matches feed config', () => {
+    expect(ALLOWED_FEEDS).toEqual(feedUrls);
   });
 });
 
@@ -53,6 +53,17 @@ describe('GET /', () => {
     expect(body.service).toBe('RSS Feed Generator');
     expect(body.allowed_feeds).toBeDefined();
     expect(body.endpoints).toBeDefined();
+    expect(body.endpoints['/status']).toBeDefined();
+  });
+
+  test('auto-generates examples from feeds config', async () => {
+    const response = await app.inject({ method: 'GET', url: '/' });
+    const body = JSON.parse(response.body);
+    const labels = feeds.map((f) => f.label);
+    expect(Object.keys(body.examples)).toEqual(labels);
+    for (const feed of feeds) {
+      expect(body.examples[feed.label]).toContain(encodeURIComponent(feed.url));
+    }
   });
 });
 
@@ -176,8 +187,8 @@ describe('POST /refresh', () => {
     expect(response.statusCode).toBe(200);
     const body = JSON.parse(response.body);
     expect(body.status).toBe('success');
-    expect(body.results).toHaveLength(2);
-    expect(scraper.scrapeArticles).toHaveBeenCalledTimes(2);
+    expect(body.results).toHaveLength(feedUrls.length);
+    expect(scraper.scrapeArticles).toHaveBeenCalledTimes(feedUrls.length);
   });
 
   test('refreshes specific feed with valid API key and URL', async () => {
@@ -216,5 +227,53 @@ describe('POST /refresh', () => {
     });
 
     expect(response.statusCode).toBe(403);
+  });
+});
+
+describe('GET /status', () => {
+  test('returns degraded when no feeds are cached', async () => {
+    cache.get.mockReturnValue(undefined);
+    const response = await app.inject({ method: 'GET', url: '/status' });
+    expect(response.statusCode).toBe(200);
+    const body = JSON.parse(response.body);
+    expect(body.status).toBe('degraded');
+    expect(body.timestamp).toBeDefined();
+    expect(body.feeds).toHaveLength(feeds.length);
+    for (const feed of body.feeds) {
+      expect(feed.cached).toBe(false);
+      expect(feed.label).toBeDefined();
+      expect(feed.url).toBeDefined();
+      expect(feed.extractor).toBeDefined();
+    }
+  });
+
+  test('returns healthy when all feeds are cached', async () => {
+    cache.get.mockReturnValue('<rss>cached</rss>');
+    const response = await app.inject({ method: 'GET', url: '/status' });
+    expect(response.statusCode).toBe(200);
+    const body = JSON.parse(response.body);
+    expect(body.status).toBe('healthy');
+    for (const feed of body.feeds) {
+      expect(feed.cached).toBe(true);
+    }
+  });
+
+  test('returns degraded when some feeds are cached', async () => {
+    cache.get.mockImplementation((key) => {
+      if (key === `feed:${feeds[0].url}`) return '<rss>cached</rss>';
+      return undefined;
+    });
+    const response = await app.inject({ method: 'GET', url: '/status' });
+    const body = JSON.parse(response.body);
+    expect(body.status).toBe('degraded');
+    expect(body.feeds[0].cached).toBe(true);
+    expect(body.feeds[1].cached).toBe(false);
+  });
+});
+
+describe('GET /debug-dates', () => {
+  test('returns 404 (endpoint removed)', async () => {
+    const response = await app.inject({ method: 'GET', url: '/debug-dates' });
+    expect(response.statusCode).toBe(404);
   });
 });

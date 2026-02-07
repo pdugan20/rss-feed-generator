@@ -15,12 +15,12 @@ jest.mock('../../lib/rss-generator', () => ({
 const scraper = require('../../lib/scraper');
 const cache = require('../../lib/cache');
 const rssGenerator = require('../../lib/rss-generator');
+const { feedUrls } = require('../../lib/feeds');
 
 let scheduler;
 
 beforeEach(() => {
   jest.clearAllMocks();
-  // Re-require to get a fresh instance
   jest.isolateModules(() => {
     scheduler = require('../../lib/scheduler');
   });
@@ -28,11 +28,9 @@ beforeEach(() => {
 
 describe('Scheduler', () => {
   describe('getFeeds', () => {
-    test('returns default feed URLs', () => {
+    test('returns feed URLs from config', () => {
       const feeds = scheduler.getFeeds();
-      expect(feeds).toContain('https://www.seattletimes.com/sports/washington-huskies-football/');
-      expect(feeds).toContain('https://www.seattletimes.com/sports/mariners/');
-      expect(feeds).toHaveLength(2);
+      expect(feeds).toEqual(feedUrls);
     });
   });
 
@@ -44,15 +42,16 @@ describe('Scheduler', () => {
 
     test('does not duplicate existing URLs', () => {
       const initialLength = scheduler.getFeeds().length;
-      scheduler.addFeed('https://www.seattletimes.com/sports/mariners/');
+      scheduler.addFeed(feedUrls[0]);
       expect(scheduler.getFeeds()).toHaveLength(initialLength);
     });
   });
 
   describe('removeFeed', () => {
     test('removes a feed URL', () => {
-      scheduler.removeFeed('https://www.seattletimes.com/sports/mariners/');
-      expect(scheduler.getFeeds()).not.toContain('https://www.seattletimes.com/sports/mariners/');
+      const urlToRemove = feedUrls[feedUrls.length - 1];
+      scheduler.removeFeed(urlToRemove);
+      expect(scheduler.getFeeds()).not.toContain(urlToRemove);
     });
 
     test('handles non-existent URL gracefully', () => {
@@ -73,10 +72,10 @@ describe('Scheduler', () => {
 
       await scheduler.refreshFeeds();
 
-      expect(scraper.scrapeArticles).toHaveBeenCalledTimes(2);
-      expect(cache.del).toHaveBeenCalledTimes(2);
-      expect(rssGenerator.generateFeed).toHaveBeenCalledTimes(2);
-      expect(cache.set).toHaveBeenCalledTimes(2);
+      expect(scraper.scrapeArticles).toHaveBeenCalledTimes(feedUrls.length);
+      expect(cache.del).toHaveBeenCalledTimes(feedUrls.length);
+      expect(rssGenerator.generateFeed).toHaveBeenCalledTimes(feedUrls.length);
+      expect(cache.set).toHaveBeenCalledTimes(feedUrls.length);
     });
 
     test('handles scraper errors gracefully', async () => {

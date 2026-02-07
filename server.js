@@ -4,11 +4,9 @@ const cors = require('@fastify/cors');
 const scraper = require('./lib/scraper');
 const rssGenerator = require('./lib/rss-generator');
 const cache = require('./lib/cache');
+const { feedUrls, feeds } = require('./lib/feeds');
 
-const ALLOWED_FEEDS = [
-  'https://www.seattletimes.com/sports/washington-huskies-football/',
-  'https://www.seattletimes.com/sports/mariners/',
-];
+const ALLOWED_FEEDS = feedUrls;
 
 function buildApp(opts = {}) {
   const fastify = Fastify({
@@ -21,18 +19,21 @@ function buildApp(opts = {}) {
   });
 
   fastify.get('/', async (_request, _reply) => {
+    const examples = {};
+    for (const feed of feeds) {
+      examples[feed.label] = `/feed?url=${encodeURIComponent(feed.url)}`;
+    }
+
     return {
       service: 'RSS Feed Generator',
       endpoints: {
         '/feed': 'Get RSS feed (query param: url)',
         '/health': 'Health check',
+        '/status': 'Per-feed cache status',
         '/refresh': 'Manual refresh (POST, requires API key)',
       },
       allowed_feeds: ALLOWED_FEEDS,
-      examples: {
-        huskies: '/feed?url=https://www.seattletimes.com/sports/washington-huskies-football/',
-        mariners: '/feed?url=https://www.seattletimes.com/sports/mariners/',
-      },
+      examples,
       refresh_schedule: 'Daily at 6 AM PST',
     };
   });
@@ -46,31 +47,25 @@ function buildApp(opts = {}) {
     };
   });
 
-  // Debug endpoint to test date extraction
-  fastify.get('/debug-dates', async (request, reply) => {
-    const { url } = request.query;
-
-    if (!url) {
-      return reply.code(400).send({ error: 'URL parameter required' });
-    }
-
-    try {
-      const { articles } = await scraper.scrapeArticles(url);
-      const dateInfo = articles.slice(0, 5).map((article) => ({
-        title: article.title.substring(0, 50),
-        pubDate: article.pubDate,
-        dateString: article.pubDate ? article.pubDate.toISOString() : 'null',
-      }));
-
+  fastify.get('/status', async (_request, _reply) => {
+    const feedStatus = feeds.map((feed) => {
+      const cacheKey = `feed:${feed.url}`;
+      const cached = cache.get(cacheKey);
       return {
-        url,
-        articlesFound: articles.length,
-        dateExtractionResults: dateInfo,
+        label: feed.label,
+        url: feed.url,
+        extractor: feed.extractor,
+        cached: !!cached,
       };
-    } catch (error) {
-      fastify.log.error(error);
-      return reply.code(500).send({ error: 'Failed to scrape dates', message: error.message });
-    }
+    });
+
+    const allCached = feedStatus.every((f) => f.cached);
+
+    return {
+      status: allCached ? 'healthy' : 'degraded',
+      timestamp: new Date().toISOString(),
+      feeds: feedStatus,
+    };
   });
 
   // Manual refresh endpoint (protected with API key)
