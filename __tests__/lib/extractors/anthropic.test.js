@@ -1,0 +1,141 @@
+const cheerio = require('cheerio');
+const { extract } = require('../../../lib/extractors/anthropic');
+
+const BASE_URL = 'https://www.anthropic.com/engineering';
+
+const SAMPLE_HTML = `
+<html><body>
+  <div class="card">
+    <a href="/engineering/infrastructure-noise">
+      <h3 class="title">Quantifying Infrastructure Noise in Agentic Coding Evals</h3>
+    </a>
+    <p class="summary">Infrastructure configuration can swing agentic coding benchmarks by several percentage points.</p>
+    <span class="date">Feb 05, 2026</span>
+    <img src="https://www-cdn.anthropic.com/images/infra-noise.svg" />
+  </div>
+  <div class="card">
+    <a href="/engineering/building-c-compiler">
+      <h3 class="title">Building a C Compiler with a Team of Parallel Claudes</h3>
+    </a>
+    <p class="summary">We tasked Opus 4.6 to build a C Compiler.</p>
+    <span class="date">Jan 28, 2026</span>
+  </div>
+  <div class="card">
+    <a href="/engineering/ai-resistant-evals">
+      <h3 class="title">Designing AI-Resistant Technical Evaluations</h3>
+    </a>
+    <p class="summary">What we learned from three iterations of a performance engineering take-home.</p>
+    <time datetime="2026-01-21">Jan 21, 2026</time>
+  </div>
+  <nav>
+    <a href="/engineering">All Posts</a>
+    <a href="/">Home</a>
+  </nav>
+</body></html>
+`;
+
+describe('anthropic extractor', () => {
+  test('extracts articles from engineering page', () => {
+    const $ = cheerio.load(SAMPLE_HTML);
+    const articles = extract($, BASE_URL);
+    expect(articles).toHaveLength(3);
+  });
+
+  test('extracts title correctly', () => {
+    const $ = cheerio.load(SAMPLE_HTML);
+    const articles = extract($, BASE_URL);
+    expect(articles[0].title).toBe('Quantifying Infrastructure Noise in Agentic Coding Evals');
+  });
+
+  test('resolves relative links to absolute URLs', () => {
+    const $ = cheerio.load(SAMPLE_HTML);
+    const articles = extract($, BASE_URL);
+    expect(articles[0].link).toBe('https://www.anthropic.com/engineering/infrastructure-noise');
+  });
+
+  test('extracts summary as description', () => {
+    const $ = cheerio.load(SAMPLE_HTML);
+    const articles = extract($, BASE_URL);
+    expect(articles[0].description).toContain('Infrastructure configuration');
+  });
+
+  test('parses date text for pubDate', () => {
+    const $ = cheerio.load(SAMPLE_HTML);
+    const articles = extract($, BASE_URL);
+    expect(articles[0].pubDate).toBeInstanceOf(Date);
+  });
+
+  test('parses datetime attribute from time element', () => {
+    const $ = cheerio.load(SAMPLE_HTML);
+    const articles = extract($, BASE_URL);
+    expect(articles[2].pubDate).toBeInstanceOf(Date);
+    expect(articles[2].pubDate.getFullYear()).toBe(2026);
+  });
+
+  test('extracts image URL', () => {
+    const $ = cheerio.load(SAMPLE_HTML);
+    const articles = extract($, BASE_URL);
+    expect(articles[0].imageUrl).toContain('anthropic.com');
+  });
+
+  test('article without image has null imageUrl', () => {
+    const $ = cheerio.load(SAMPLE_HTML);
+    const articles = extract($, BASE_URL);
+    expect(articles[1].imageUrl).toBeNull();
+  });
+
+  test('skips nav links and short text links', () => {
+    const $ = cheerio.load(SAMPLE_HTML);
+    const articles = extract($, BASE_URL);
+    const links = articles.map((a) => a.link);
+    expect(links).not.toContain('https://www.anthropic.com/engineering');
+  });
+
+  test('deduplicates by URL', () => {
+    const dupeHtml = `
+      <html><body>
+        <div class="card">
+          <a href="/engineering/same-article">
+            <h3>Same Article Title Here</h3>
+          </a>
+        </div>
+        <div class="card">
+          <a href="/engineering/same-article">
+            <h3>Same Article Title Here</h3>
+          </a>
+        </div>
+      </body></html>
+    `;
+    const $ = cheerio.load(dupeHtml);
+    const articles = extract($, BASE_URL);
+    expect(articles).toHaveLength(1);
+  });
+
+  test('caps at 20 articles', () => {
+    let html = '<html><body>';
+    for (let i = 0; i < 25; i++) {
+      html += `
+        <div class="card">
+          <a href="/engineering/article-${i}">
+            <h3>Engineering Article Number ${i}</h3>
+          </a>
+        </div>`;
+    }
+    html += '</body></html>';
+    const $ = cheerio.load(html);
+    const articles = extract($, BASE_URL);
+    expect(articles).toHaveLength(20);
+  });
+
+  test('returns empty array for page with no engineering links', () => {
+    const $ = cheerio.load('<html><body><p>No articles</p></body></html>');
+    const articles = extract($, BASE_URL);
+    expect(articles).toHaveLength(0);
+  });
+
+  test('sets guid equal to link', () => {
+    const $ = cheerio.load(SAMPLE_HTML);
+    const articles = extract($, BASE_URL);
+    expect(articles[0].guid).toBe(articles[0].link);
+  });
+});
