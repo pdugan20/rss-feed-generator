@@ -10,8 +10,8 @@ interface ScrapeResult {
 }
 
 const CHROMIUM_PATHS = [
+  '/root/.nix-profile/bin/chromium',
   '/usr/bin/chromium',
-  '/usr/bin/chromium-browser',
   '/usr/bin/google-chrome-stable',
   '/usr/bin/google-chrome',
 ];
@@ -38,6 +38,7 @@ class Scraper {
           '--disable-setuid-sandbox',
           '--disable-dev-shm-usage',
           '--disable-gpu',
+          '--no-zygote',
           '--disable-web-security',
           '--disable-features=IsolateOrigins,site-per-process',
         ],
