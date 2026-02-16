@@ -13,12 +13,7 @@ class Scraper {
 
   async initBrowser(): Promise<Browser> {
     if (!this.browser) {
-      let executablePath: string | undefined = process.env.PUPPETEER_EXECUTABLE_PATH;
-
-      // If env var is set but doesn't work, try undefined (let Puppeteer find it)
-      if (executablePath === '/usr/bin/chromium') {
-        executablePath = undefined;
-      }
+      const executablePath: string | undefined = process.env.PUPPETEER_EXECUTABLE_PATH || undefined;
 
       this.browser = await puppeteer.launch({
         headless: true,

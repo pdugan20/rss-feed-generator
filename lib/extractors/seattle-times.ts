@@ -62,7 +62,10 @@ function extract($: CheerioAPI, url: string): Article[] {
         if (articles.length >= 20) return false;
 
         const $story = $(element);
-        const $link = $story.find('a[href*="/2024/"], a[href*="/2025/"]').first();
+        const currentYear = new Date().getFullYear();
+        const years = [currentYear, currentYear - 1, currentYear - 2];
+        const selector = years.map((y) => `a[href*="/${y}/"]`).join(', ');
+        const $link = $story.find(selector).first();
 
         if (!$link.length) return;
 

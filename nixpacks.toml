@@ -3,10 +3,13 @@ nixPkgs = ["nodejs_20", "libuuid"]
 aptPkgs = ["chromium", "chromium-driver", "libxfixes3", "libxss1", "fonts-liberation", "libappindicator3-1", "xdg-utils", "libglib2.0-0", "libnss3", "libatk1.0-0", "libatk-bridge2.0-0", "libcups2", "libdrm2", "libxkbcommon0", "libxcomposite1", "libxdamage1", "libxrandr2", "libgbm1", "libasound2t64"]
 
 [phases.install]
-cmds = ["npm ci"]
+cmds = ["PUPPETEER_SKIP_DOWNLOAD=true npm ci"]
 
 [phases.build]
 cmds = ["npm run build"]
+
+[variables]
+PUPPETEER_EXECUTABLE_PATH = "/usr/bin/chromium"
 
 [start]
 cmd = "npm start"
