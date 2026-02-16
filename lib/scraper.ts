@@ -1,3 +1,4 @@
+import fs from 'fs';
 import puppeteer, { Browser } from 'puppeteer';
 import * as cheerio from 'cheerio';
 import { getExtractor } from './extract';
@@ -8,12 +9,26 @@ interface ScrapeResult {
   pageTitle: string;
 }
 
+const CHROMIUM_PATHS = [
+  '/usr/bin/chromium',
+  '/usr/bin/chromium-browser',
+  '/usr/bin/google-chrome-stable',
+  '/usr/bin/google-chrome',
+];
+
+function findSystemChromium(): string | undefined {
+  for (const p of CHROMIUM_PATHS) {
+    if (fs.existsSync(p)) return p;
+  }
+  return undefined;
+}
+
 class Scraper {
   private browser: Browser | null = null;
 
   async initBrowser(): Promise<Browser> {
     if (!this.browser) {
-      const executablePath: string | undefined = process.env.PUPPETEER_EXECUTABLE_PATH || undefined;
+      const executablePath = process.env.PUPPETEER_EXECUTABLE_PATH || findSystemChromium();
 
       this.browser = await puppeteer.launch({
         headless: true,
