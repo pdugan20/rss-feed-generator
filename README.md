@@ -18,7 +18,7 @@ A secure, whitelisted feed generator with pluggable per-site extractors and auto
 - **Persistent article store** - Enriched descriptions cached to disk, surviving deploys
 - **Railway Cron scheduling** - Reliable scheduled updates via Railway's cron service
 - **API key protected** - Manual refresh requires authentication
-- **24-hour caching** - Balances freshness with server load
+- **3-tier caching** - In-memory + disk + on-demand scraping; disk cache survives deploys and restarts
 - **Health monitoring** - `/status` endpoint reports per-feed cache health
 
 ## Supported Feeds
@@ -177,12 +177,14 @@ The script checks `/status`, triggers `/refresh`, and validates each feed endpoi
    - `DATA_DIR` - Set to `/app/data` for persistent article store
    - `PORT` - Leave empty (Railway sets this automatically)
 
-3. **Add Persistent Volume (for article enrichment):**
+3. **Add Persistent Volume:**
    - In your Railway project, open the web service
    - Add a volume with mount path `/app/data`
-   - This stores enriched article descriptions across deploys
+   - This stores the disk-based feed cache and enriched article descriptions across deploys
 
 ### Cron Service Setup (For Scheduled Updates)
+
+The cron service triggers cache refresh by calling the web service's `/refresh` endpoint. It does not scrape directly — the web service handles scraping and populates both its in-memory and disk-based caches.
 
 1. **Add Cron Service to Same Project:**
    - In your Railway project, click **+ Create**
@@ -191,16 +193,18 @@ The script checks `/status`, triggers `/refresh`, and validates each feed endpoi
 
 2. **Configure the Cron Service:**
    - Go to **Settings** tab
-   - **Service Name:** `rss-feed-cron` (or similar)
+   - **Service Name:** `rss-update-cron` (or similar)
    - **Start Command:** `node dist/scripts/refresh-feeds.js`
    - **Cron Schedule:** `0 13 * * *` (6 AM PST in UTC)
 
-3. **Copy Environment Variables:**
+3. **Set Environment Variables:**
    - Go to **Variables** tab
-   - Add the same `API_KEY` and any other variables from your web service
+   - `BASE_URL` - The web service's public URL (e.g., `https://your-app.up.railway.app`)
+   - `API_KEY` - Same API key as the web service
 
 4. **Deploy:**
    - Railway will run the cron service on schedule
+   - No volume needed — the cron service only makes an HTTP call
 
 ### Railway CLI (Optional)
 
@@ -216,7 +220,7 @@ railway status      # Check deployment status
 
 - **Automatic:** Configured via Railway Cron (recommended: daily at 6 AM PST using `0 13 * * *`)
 - **Manual:** Use the `/refresh` endpoint with your API key
-- **Cache Duration:** 24 hours
+- **Cache Duration:** 24 hours (in-memory) + persistent disk cache that survives restarts
 
 ## Development
 
@@ -248,6 +252,7 @@ lib/
   scraper.ts            Browser management only (Puppeteer)
   scheduler.ts          Scheduled feed refresh
   feed-generator.ts     Multi-format feed generation (RSS, Atom, JSON)
+  feed-store.ts         Disk-based feed cache (survives restarts/deploys)
   enricher.ts           Article enrichment pipeline
   article-store.ts      Persistent article metadata (descriptions)
   cache.ts              In-memory cache (24h TTL)
