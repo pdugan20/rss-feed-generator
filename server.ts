@@ -4,6 +4,7 @@ import cors from '@fastify/cors';
 import scraper from './lib/scraper';
 import feedGenerator from './lib/feed-generator';
 import cache from './lib/cache';
+import feedStore from './lib/feed-store';
 import { feedUrls, feeds } from './lib/feeds';
 import { enrichArticles } from './lib/enricher';
 import type { FeedFormat, GeneratedFeeds } from './lib/types';
@@ -69,12 +70,21 @@ function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   fastify.get('/status', async (_request: FastifyRequest, _reply: FastifyReply) => {
     const feedStatus = feeds.map((feed) => {
       const cacheKey = `feed:${feed.url}`;
-      const cached = cache.get(cacheKey);
+      const memoryCached = !!cache.get(cacheKey);
+      const diskMeta = feedStore.getMetadata(feed.url);
+      const diskCached = diskMeta !== null;
+      const diskStale = diskCached ? feedStore.isStale(feed.url) : null;
+
       return {
         label: feed.label,
         url: feed.url,
         extractor: feed.extractor,
-        cached: !!cached,
+        cached: memoryCached || (diskCached && !diskStale),
+        memory: memoryCached,
+        disk: diskCached,
+        diskStale,
+        diskCachedAt: diskMeta?.cachedAt ?? null,
+        diskArticleCount: diskMeta?.articleCount ?? null,
       };
     });
 
@@ -120,6 +130,7 @@ function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
           await enrichArticles(url, articles);
           const generatedFeeds = await feedGenerator.generateFeeds(url, articles, pageTitle);
           cache.set(cacheKey, generatedFeeds);
+          feedStore.set(url, generatedFeeds, articles.length);
 
           return {
             status: 'success',
@@ -157,6 +168,7 @@ function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
                 pageTitle
               );
               cache.set(cacheKey, generatedFeeds);
+              feedStore.set(feedUrl, generatedFeeds, articles.length);
 
               results.push({
                 url: feedUrl,
@@ -225,10 +237,20 @@ function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
         const cached = cache.get<GeneratedFeeds>(cacheKey);
 
         if (cached) {
-          fastify.log.info(`Serving cached feed for ${url} (${format})`);
+          fastify.log.info(`Serving memory-cached feed for ${url} (${format})`);
           reply.header('Content-Type', feedGenerator.getContentType(format));
           reply.header('X-Cache', 'HIT');
           return reply.send(cached[format]);
+        }
+
+        // Check disk cache
+        const diskEntry = feedStore.get(url);
+        if (diskEntry && !feedStore.isStale(url)) {
+          fastify.log.info(`Serving disk-cached feed for ${url} (${format})`);
+          cache.set(cacheKey, diskEntry.feeds);
+          reply.header('Content-Type', feedGenerator.getContentType(format));
+          reply.header('X-Cache', 'DISK');
+          return reply.send(diskEntry.feeds[format]);
         }
 
         fastify.log.info(`Scraping ${url}`);
@@ -245,6 +267,7 @@ function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
         const generatedFeeds = await feedGenerator.generateFeeds(url, articles, pageTitle);
 
         cache.set(cacheKey, generatedFeeds);
+        feedStore.set(url, generatedFeeds, articles.length);
 
         reply.header('Content-Type', feedGenerator.getContentType(format));
         reply.header('X-Cache', 'MISS');

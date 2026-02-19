@@ -1,6 +1,7 @@
 import scraper from '../lib/scraper';
 import cache from '../lib/cache';
 import feedGenerator from '../lib/feed-generator';
+import feedStore from '../lib/feed-store';
 import { buildApp, ALLOWED_FEEDS } from '../server';
 import { feedUrls, feeds } from '../lib/feeds';
 import type { FastifyInstance } from 'fastify';
@@ -9,10 +10,12 @@ import type { GeneratedFeeds } from '../lib/types';
 jest.mock('../lib/scraper');
 jest.mock('../lib/cache');
 jest.mock('../lib/feed-generator');
+jest.mock('../lib/feed-store');
 
 const mockedScraper = jest.mocked(scraper);
 const mockedCache = jest.mocked(cache);
 const mockedFeedGenerator = jest.mocked(feedGenerator);
+const mockedFeedStore = jest.mocked(feedStore);
 
 const TEST_API_KEY = 'test-api-key-12345';
 const MARINERS_URL = 'https://www.seattletimes.com/sports/mariners/';
@@ -191,6 +194,64 @@ describe('GET /feed', () => {
     expect(response.body).toBe(MOCK_FEEDS.rss);
     expect(mockedScraper.scrapeArticles).toHaveBeenCalledWith(MARINERS_URL);
     expect(mockedCache.set).toHaveBeenCalled();
+    expect(mockedFeedStore.set).toHaveBeenCalled();
+  });
+
+  test('returns disk-cached feed with X-Cache DISK on memory miss', async () => {
+    mockedCache.get.mockReturnValue(undefined);
+    mockedFeedStore.get.mockReturnValue({
+      feeds: MOCK_FEEDS,
+      sourceUrl: MARINERS_URL,
+      articleCount: 5,
+      cachedAt: new Date().toISOString(),
+    });
+    mockedFeedStore.isStale.mockReturnValue(false);
+
+    const response = await app.inject({
+      method: 'GET',
+      url: `/feed?url=${encodeURIComponent(MARINERS_URL)}`,
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.headers['x-cache']).toBe('DISK');
+    expect(response.body).toBe(MOCK_FEEDS.rss);
+    expect(mockedScraper.scrapeArticles).not.toHaveBeenCalled();
+    expect(mockedCache.set).toHaveBeenCalled();
+  });
+
+  test('scrapes when disk cache is stale', async () => {
+    mockedCache.get.mockReturnValue(undefined);
+    mockedFeedStore.get.mockReturnValue({
+      feeds: MOCK_FEEDS,
+      sourceUrl: MARINERS_URL,
+      articleCount: 5,
+      cachedAt: new Date(Date.now() - 100000000).toISOString(),
+    });
+    mockedFeedStore.isStale.mockReturnValue(true);
+
+    mockedScraper.scrapeArticles.mockResolvedValue({
+      articles: [
+        {
+          title: 'Test',
+          link: 'https://example.com/1',
+          description: 'desc',
+          pubDate: new Date(),
+          imageUrl: null,
+          guid: 'https://example.com/1',
+        },
+      ],
+      pageTitle: 'Test',
+    });
+    mockedFeedGenerator.generateFeeds.mockResolvedValue(MOCK_FEEDS);
+
+    const response = await app.inject({
+      method: 'GET',
+      url: `/feed?url=${encodeURIComponent(MARINERS_URL)}`,
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.headers['x-cache']).toBe('MISS');
+    expect(mockedScraper.scrapeArticles).toHaveBeenCalled();
   });
 
   test('returns 404 when scraper finds no articles', async () => {
@@ -314,6 +375,8 @@ describe('POST /refresh', () => {
 describe('GET /status', () => {
   test('returns degraded when no feeds are cached', async () => {
     mockedCache.get.mockReturnValue(undefined);
+    mockedFeedStore.getMetadata.mockReturnValue(null);
+    mockedFeedStore.isStale.mockReturnValue(true);
     const response = await app.inject({ method: 'GET', url: '/status' });
     expect(response.statusCode).toBe(200);
     const body = JSON.parse(response.body);
@@ -325,17 +388,42 @@ describe('GET /status', () => {
       expect(feed.label).toBeDefined();
       expect(feed.url).toBeDefined();
       expect(feed.extractor).toBeDefined();
+      expect(feed.memory).toBe(false);
+      expect(feed.disk).toBe(false);
     }
   });
 
-  test('returns healthy when all feeds are cached', async () => {
+  test('returns healthy when all feeds are cached in memory', async () => {
     mockedCache.get.mockReturnValue(MOCK_FEEDS);
+    mockedFeedStore.getMetadata.mockReturnValue(null);
+    mockedFeedStore.isStale.mockReturnValue(true);
     const response = await app.inject({ method: 'GET', url: '/status' });
     expect(response.statusCode).toBe(200);
     const body = JSON.parse(response.body);
     expect(body.status).toBe('healthy');
     for (const feed of body.feeds) {
       expect(feed.cached).toBe(true);
+      expect(feed.memory).toBe(true);
+    }
+  });
+
+  test('returns healthy when all feeds are cached on disk', async () => {
+    mockedCache.get.mockReturnValue(undefined);
+    mockedFeedStore.getMetadata.mockReturnValue({
+      cachedAt: new Date().toISOString(),
+      articleCount: 5,
+    });
+    mockedFeedStore.isStale.mockReturnValue(false);
+    const response = await app.inject({ method: 'GET', url: '/status' });
+    expect(response.statusCode).toBe(200);
+    const body = JSON.parse(response.body);
+    expect(body.status).toBe('healthy');
+    for (const feed of body.feeds) {
+      expect(feed.cached).toBe(true);
+      expect(feed.memory).toBe(false);
+      expect(feed.disk).toBe(true);
+      expect(feed.diskStale).toBe(false);
+      expect(feed.diskArticleCount).toBe(5);
     }
   });
 
@@ -344,6 +432,8 @@ describe('GET /status', () => {
       if (key === `feed:${feeds[0].url}`) return MOCK_FEEDS;
       return undefined;
     });
+    mockedFeedStore.getMetadata.mockReturnValue(null);
+    mockedFeedStore.isStale.mockReturnValue(true);
     const response = await app.inject({ method: 'GET', url: '/status' });
     const body = JSON.parse(response.body);
     expect(body.status).toBe('degraded');

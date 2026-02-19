@@ -30,4 +30,9 @@ function getExtractorName(url: string): string | null {
   return entry ? entry.extractor : null;
 }
 
-export { feeds, feedUrls, getExtractorName };
+function getLabel(url: string): string | null {
+  const entry = feeds.find((f) => f.url === url);
+  return entry ? entry.label : null;
+}
+
+export { feeds, feedUrls, getExtractorName, getLabel };

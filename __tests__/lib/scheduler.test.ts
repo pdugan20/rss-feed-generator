@@ -1,16 +1,19 @@
 import scraper from '../../lib/scraper';
 import cache from '../../lib/cache';
 import feedGenerator from '../../lib/feed-generator';
+import feedStore from '../../lib/feed-store';
 import { feedUrls } from '../../lib/feeds';
 import type schedulerType from '../../lib/scheduler';
 
 jest.mock('../../lib/scraper');
 jest.mock('../../lib/cache');
 jest.mock('../../lib/feed-generator');
+jest.mock('../../lib/feed-store');
 
 const mockedScraper = jest.mocked(scraper);
 const mockedCache = jest.mocked(cache);
 const mockedFeedGenerator = jest.mocked(feedGenerator);
+const mockedFeedStore = jest.mocked(feedStore);
 
 let scheduler: typeof schedulerType;
 
@@ -84,6 +87,7 @@ describe('Scheduler', () => {
       expect(mockedCache.del).toHaveBeenCalledTimes(feedUrls.length);
       expect(mockedFeedGenerator.generateFeeds).toHaveBeenCalledTimes(feedUrls.length);
       expect(mockedCache.set).toHaveBeenCalledTimes(feedUrls.length);
+      expect(mockedFeedStore.set).toHaveBeenCalledTimes(feedUrls.length);
     });
 
     test('handles scraper errors gracefully', async () => {
@@ -91,6 +95,7 @@ describe('Scheduler', () => {
 
       await expect(scheduler.refreshFeeds()).resolves.toBeUndefined();
       expect(mockedCache.set).not.toHaveBeenCalled();
+      expect(mockedFeedStore.set).not.toHaveBeenCalled();
     });
 
     test('skips caching when no articles found', async () => {
@@ -103,6 +108,7 @@ describe('Scheduler', () => {
 
       expect(mockedFeedGenerator.generateFeeds).not.toHaveBeenCalled();
       expect(mockedCache.set).not.toHaveBeenCalled();
+      expect(mockedFeedStore.set).not.toHaveBeenCalled();
     });
   });
 });

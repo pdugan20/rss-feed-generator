@@ -1,6 +1,7 @@
 import cache from './cache';
 import scraper from './scraper';
 import feedGenerator from './feed-generator';
+import feedStore from './feed-store';
 import { feedUrls } from './feeds';
 import { enrichArticles } from './enricher';
 
@@ -29,6 +30,7 @@ class Scheduler {
           await enrichArticles(feedUrl, articles);
           const feeds = await feedGenerator.generateFeeds(feedUrl, articles, pageTitle);
           cache.set(cacheKey, feeds);
+          feedStore.set(feedUrl, feeds, articles.length);
 
           console.log(`Successfully refreshed feed: ${feedUrl} (${articles.length} articles)`);
         } else {
