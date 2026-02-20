@@ -273,4 +273,75 @@ describe('claude-blog enrichArticle', () => {
     const result = enrichArticle($, 'https://claude.com/blog/some-post');
     expect(result.description!.length).toBe(500);
   });
+
+  test('estimates reading time from article body', () => {
+    const words = Array(1000).fill('word').join(' ');
+    const html = `
+      <html><head>
+        <meta name="description" content="A description.">
+      </head><body>
+        <article><p>${words}</p></article>
+      </body></html>
+    `;
+    const $ = cheerio.load(html);
+    const result = enrichArticle($, 'https://claude.com/blog/some-post');
+    expect(result.readingTime).toBe(4); // 1000 / 238 = ~4.2 -> rounds to 4
+  });
+
+  test('returns minimum 1 minute reading time for short articles', () => {
+    const html = `
+      <html><head></head><body>
+        <article><p>Short post.</p></article>
+      </body></html>
+    `;
+    const $ = cheerio.load(html);
+    const result = enrichArticle($, 'https://claude.com/blog/some-post');
+    expect(result.readingTime).toBe(1);
+  });
+
+  test('returns undefined reading time for empty body', () => {
+    const html = '<html><head></head><body></body></html>';
+    const $ = cheerio.load(html);
+    const result = enrichArticle($, 'https://claude.com/blog/some-post');
+    expect(result.readingTime).toBeUndefined();
+  });
+});
+
+describe('claude-blog category extraction', () => {
+  test('extracts categories from card metadata', () => {
+    const html = `
+      <html><body>
+        <div class="blog_cms_item">
+          <a href="/blog/some-post" class="clickable_link">Read</a>
+          <h3 class="card_blog_title">Some Blog Post Title Here</h3>
+          <span class="card_blog_category">Product announcements</span>
+        </div>
+      </body></html>
+    `;
+    const $ = cheerio.load(html);
+    const articles = extract($, BASE_URL);
+    expect(articles[0].categories).toEqual(['Product announcements']);
+  });
+
+  test('articles without category elements have no categories', () => {
+    const $ = cheerio.load(SAMPLE_HTML);
+    const articles = extract($, BASE_URL);
+    expect(articles[0].categories).toBeUndefined();
+  });
+
+  test('deduplicates categories within a card', () => {
+    const html = `
+      <html><body>
+        <div class="blog_cms_item">
+          <a href="/blog/some-post" class="clickable_link">Read</a>
+          <h3 class="card_blog_title">Some Blog Post Title Here</h3>
+          <span class="category">Research</span>
+          <span class="tag">Research</span>
+        </div>
+      </body></html>
+    `;
+    const $ = cheerio.load(html);
+    const articles = extract($, BASE_URL);
+    expect(articles[0].categories).toEqual(['Research']);
+  });
 });

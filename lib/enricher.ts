@@ -14,11 +14,15 @@ async function enrichArticles(feedUrl: string, articles: Article[]): Promise<voi
   let enrichedCount = 0;
 
   for (const article of articles) {
-    // Apply cached description if available
+    // Apply cached data if available
     const cached = articleStore.getDescription(article.link);
     if (cached) {
       if (!article.description) {
         article.description = cached;
+      }
+      const cachedReadingTime = articleStore.getReadingTime(article.link);
+      if (cachedReadingTime && !article.readingTime) {
+        article.readingTime = cachedReadingTime;
       }
       continue;
     }
@@ -42,10 +46,18 @@ async function enrichArticles(feedUrl: string, articles: Article[]): Promise<voi
 
         const result = extractor.enrichArticle($, article.link);
 
-        if (result.description) {
-          articleStore.setDescription(article.link, result.description);
-          if (!article.description) {
-            article.description = result.description;
+        if (result.description || result.readingTime) {
+          if (result.description) {
+            articleStore.setArticleData(article.link, {
+              description: result.description,
+              readingTime: result.readingTime,
+            });
+            if (!article.description) {
+              article.description = result.description;
+            }
+          }
+          if (result.readingTime && !article.readingTime) {
+            article.readingTime = result.readingTime;
           }
           enrichedCount++;
         }

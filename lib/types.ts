@@ -7,6 +7,8 @@ export interface Article {
   pubDate: Date | null;
   imageUrl: string | null;
   guid: string;
+  readingTime?: number;
+  categories?: string[];
 }
 
 export interface FeedConfig {
@@ -17,7 +19,7 @@ export interface FeedConfig {
 
 export interface Extractor {
   extract: ($: CheerioAPI, url: string) => Article[];
-  enrichArticle?: ($: CheerioAPI, url: string) => { description?: string };
+  enrichArticle?: ($: CheerioAPI, url: string) => { description?: string; readingTime?: number };
 }
 
 export type FeedFormat = 'rss' | 'atom' | 'json';

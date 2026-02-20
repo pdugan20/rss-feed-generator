@@ -1,5 +1,5 @@
 import * as cheerio from 'cheerio';
-import { extract } from '../../../lib/extractors/anthropic';
+import { extract, enrichArticle } from '../../../lib/extractors/anthropic';
 import type { Article } from '../../../lib/types';
 
 const BASE_URL = 'https://www.anthropic.com/engineering';
@@ -138,5 +138,81 @@ describe('anthropic extractor', () => {
     const $ = cheerio.load(SAMPLE_HTML);
     const articles = extract($, BASE_URL);
     expect(articles[0].guid).toBe(articles[0].link);
+  });
+
+  test('extracts categories from card metadata', () => {
+    const html = `
+      <html><body>
+        <div class="card">
+          <a href="/engineering/some-article">
+            <h3>Some Engineering Article Title</h3>
+          </a>
+          <span class="category">Research</span>
+        </div>
+      </body></html>
+    `;
+    const $ = cheerio.load(html);
+    const articles = extract($, BASE_URL);
+    expect(articles[0].categories).toEqual(['Research']);
+  });
+
+  test('articles without category elements have no categories', () => {
+    const $ = cheerio.load(SAMPLE_HTML);
+    const articles = extract($, BASE_URL);
+    expect(articles[0].categories).toBeUndefined();
+  });
+});
+
+describe('anthropic enrichArticle', () => {
+  test('extracts description from meta description', () => {
+    const html = `
+      <html><head>
+        <meta name="description" content="An engineering blog post about infrastructure.">
+      </head><body><article><p>Article body text here.</p></article></body></html>
+    `;
+    const $ = cheerio.load(html);
+    const result = enrichArticle($, 'https://www.anthropic.com/engineering/some-post');
+    expect(result.description).toBe('An engineering blog post about infrastructure.');
+  });
+
+  test('extracts description from og:description', () => {
+    const html = `
+      <html><head>
+        <meta property="og:description" content="OG description for sharing.">
+      </head><body><article><p>Body text.</p></article></body></html>
+    `;
+    const $ = cheerio.load(html);
+    const result = enrichArticle($, 'https://www.anthropic.com/engineering/some-post');
+    expect(result.description).toBe('OG description for sharing.');
+  });
+
+  test('estimates reading time from article body', () => {
+    const words = Array(500).fill('word').join(' ');
+    const html = `
+      <html><head></head><body>
+        <article><p>${words}</p></article>
+      </body></html>
+    `;
+    const $ = cheerio.load(html);
+    const result = enrichArticle($, 'https://www.anthropic.com/engineering/some-post');
+    expect(result.readingTime).toBe(2); // 500 / 238 = ~2.1 -> rounds to 2
+  });
+
+  test('returns minimum 1 minute reading time for short articles', () => {
+    const html = `
+      <html><head></head><body>
+        <article><p>Short article.</p></article>
+      </body></html>
+    `;
+    const $ = cheerio.load(html);
+    const result = enrichArticle($, 'https://www.anthropic.com/engineering/some-post');
+    expect(result.readingTime).toBe(1);
+  });
+
+  test('returns undefined reading time for empty body', () => {
+    const html = '<html><head></head><body></body></html>';
+    const $ = cheerio.load(html);
+    const result = enrichArticle($, 'https://www.anthropic.com/engineering/some-post');
+    expect(result.readingTime).toBeUndefined();
   });
 });

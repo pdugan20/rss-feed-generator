@@ -1,4 +1,4 @@
-import { getExtractor, resolveUrl, parseDate } from '../../lib/extract';
+import { getExtractor, resolveUrl, parseDate, estimateReadingTime } from '../../lib/extract';
 
 describe('resolveUrl', () => {
   const base = 'https://www.seattletimes.com/sports/mariners/';
@@ -63,6 +63,35 @@ describe('parseDate', () => {
 
   test('invalid date string returns null', () => {
     expect(parseDate('not-a-date')).toBeNull();
+  });
+});
+
+describe('estimateReadingTime', () => {
+  test('returns 1 for very short text', () => {
+    expect(estimateReadingTime('hello world')).toBe(1);
+  });
+
+  test('returns 1 for empty text', () => {
+    expect(estimateReadingTime('')).toBe(1);
+  });
+
+  test('estimates 1 minute for 238 words', () => {
+    const text = Array(238).fill('word').join(' ');
+    expect(estimateReadingTime(text)).toBe(1);
+  });
+
+  test('estimates 2 minutes for ~476 words', () => {
+    const text = Array(476).fill('word').join(' ');
+    expect(estimateReadingTime(text)).toBe(2);
+  });
+
+  test('estimates 4 minutes for 1000 words', () => {
+    const text = Array(1000).fill('word').join(' ');
+    expect(estimateReadingTime(text)).toBe(4); // 1000/238 = 4.2, rounds to 4
+  });
+
+  test('handles whitespace-only text', () => {
+    expect(estimateReadingTime('   \n\t  ')).toBe(1);
   });
 });
 

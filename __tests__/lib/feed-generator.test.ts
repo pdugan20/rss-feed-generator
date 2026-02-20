@@ -18,15 +18,29 @@ jest.mock('feed', () => {
 
     rss2() {
       const items = this.items
-        .map(
-          (item) =>
+        .map((item) => {
+          let xml =
             `<item><title><![CDATA[${item.title}]]></title>` +
             `<link>${item.link}</link>` +
             `<guid isPermaLink="false">${item.id}</guid>` +
-            `<description><![CDATA[${item.description}]]></description>` +
-            (item.image ? `<enclosure url="${item.image}" length="0" type="image/jpg"/>` : '') +
-            `</item>`
-        )
+            `<description><![CDATA[${item.description}]]></description>`;
+          if (item.image) xml += `<enclosure url="${item.image}" length="0" type="image/jpg"/>`;
+          if (Array.isArray(item.category)) {
+            for (const cat of item.category as { name: string }[]) {
+              xml += `<category>${cat.name}</category>`;
+            }
+          }
+          if (Array.isArray(item.extensions)) {
+            for (const ext of item.extensions as {
+              name: string;
+              objects: Record<string, unknown>;
+            }[]) {
+              xml += `<${ext.name}>${(ext.objects as { _text: string })._text}</${ext.name}>`;
+            }
+          }
+          xml += `</item>`;
+          return xml;
+        })
         .join('\n');
       return (
         `<?xml version="1.0" encoding="utf-8"?>` +
@@ -67,13 +81,27 @@ jest.mock('feed', () => {
         version: 'https://jsonfeed.org/version/1',
         title: this.options.title,
         feed_url: links?.json,
-        items: this.items.map((item) => ({
-          id: item.id,
-          title: item.title,
-          url: item.link,
-          content_html: item.description,
-          image: item.image || undefined,
-        })),
+        items: this.items.map((item) => {
+          const jsonItem: Record<string, unknown> = {
+            id: item.id,
+            title: item.title,
+            url: item.link,
+            content_html: item.description,
+            image: item.image || undefined,
+          };
+          if (Array.isArray(item.category)) {
+            jsonItem.tags = (item.category as { name: string }[]).map((c) => c.name);
+          }
+          if (Array.isArray(item.extensions)) {
+            for (const ext of item.extensions as {
+              name: string;
+              objects: Record<string, unknown>;
+            }[]) {
+              jsonItem[ext.name] = ext.objects;
+            }
+          }
+          return jsonItem;
+        }),
       });
     }
   }
@@ -188,6 +216,95 @@ describe('FeedGenerator', () => {
       expect(result.atom).toContain('format=atom');
       const parsed = JSON.parse(result.json);
       expect(parsed.feed_url).toContain('format=json');
+    });
+
+    test('RSS output includes category elements for articles with categories', async () => {
+      const articles: Article[] = [
+        {
+          title: 'Categorized Article',
+          link: 'https://example.com/categorized',
+          description: 'Has categories',
+          pubDate: new Date(),
+          imageUrl: null,
+          guid: 'https://example.com/categorized',
+          categories: ['Research', 'Engineering'],
+        },
+      ];
+      const result = await feedGenerator.generateFeeds(MARINERS_URL, articles, 'Test');
+      expect(result.rss).toContain('<category>Research</category>');
+      expect(result.rss).toContain('<category>Engineering</category>');
+    });
+
+    test('RSS output includes cn:readingTime extension', async () => {
+      const articles: Article[] = [
+        {
+          title: 'Article With Reading Time',
+          link: 'https://example.com/reading-time',
+          description: 'Has reading time',
+          pubDate: new Date(),
+          imageUrl: null,
+          guid: 'https://example.com/reading-time',
+          readingTime: 5,
+        },
+      ];
+      const result = await feedGenerator.generateFeeds(MARINERS_URL, articles, 'Test');
+      expect(result.rss).toContain('<cn:readingTime>5</cn:readingTime>');
+    });
+
+    test('RSS output includes xmlns:cn when articles have readingTime', async () => {
+      const articles: Article[] = [
+        {
+          title: 'Article With Reading Time',
+          link: 'https://example.com/reading-time',
+          description: 'Has reading time',
+          pubDate: new Date(),
+          imageUrl: null,
+          guid: 'https://example.com/reading-time',
+          readingTime: 5,
+        },
+      ];
+      const result = await feedGenerator.generateFeeds(MARINERS_URL, articles, 'Test');
+      expect(result.rss).toContain('xmlns:cn="https://claudenotes.co/rss-extensions"');
+    });
+
+    test('RSS output omits xmlns:cn when no articles have readingTime', async () => {
+      const result = await feedGenerator.generateFeeds(MARINERS_URL, mockArticles, 'Test');
+      expect(result.rss).not.toContain('xmlns:cn');
+    });
+
+    test('JSON output uses _cn extension format for readingTime', async () => {
+      const articles: Article[] = [
+        {
+          title: 'Article With Reading Time',
+          link: 'https://example.com/reading-time',
+          description: 'Has reading time',
+          pubDate: new Date(),
+          imageUrl: null,
+          guid: 'https://example.com/reading-time',
+          readingTime: 5,
+        },
+      ];
+      const result = await feedGenerator.generateFeeds(MARINERS_URL, articles, 'Test');
+      const parsed = JSON.parse(result.json);
+      expect(parsed.items[0]._cn).toEqual({ readingTime: 5 });
+      expect(parsed.items[0]['cn:readingTime']).toBeUndefined();
+    });
+
+    test('JSON output includes tags for articles with categories', async () => {
+      const articles: Article[] = [
+        {
+          title: 'Categorized Article',
+          link: 'https://example.com/categorized',
+          description: 'Has categories',
+          pubDate: new Date(),
+          imageUrl: null,
+          guid: 'https://example.com/categorized',
+          categories: ['Research'],
+        },
+      ];
+      const result = await feedGenerator.generateFeeds(MARINERS_URL, articles, 'Test');
+      const parsed = JSON.parse(result.json);
+      expect(parsed.items[0].tags).toEqual(['Research']);
     });
 
     test('uses description as fallback when description is empty', async () => {

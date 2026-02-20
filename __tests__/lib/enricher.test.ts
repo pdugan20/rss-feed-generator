@@ -23,13 +23,17 @@ jest.mock('../../lib/scraper', () => {
 });
 
 jest.mock('../../lib/article-store', () => {
-  const store: Record<string, string> = {};
+  const store: Record<string, { description: string; readingTime?: number }> = {};
   return {
     __esModule: false,
-    getDescription: jest.fn((url: string) => store[url]),
-    hasDescription: jest.fn((url: string) => url in store && store[url].length > 0),
+    getDescription: jest.fn((url: string) => store[url]?.description),
+    getReadingTime: jest.fn((url: string) => store[url]?.readingTime),
+    hasDescription: jest.fn((url: string) => url in store && store[url].description.length > 0),
     setDescription: jest.fn((url: string, desc: string) => {
-      store[url] = desc;
+      store[url] = { ...store[url], description: desc };
+    }),
+    setArticleData: jest.fn((url: string, data: { description: string; readingTime?: number }) => {
+      store[url] = { description: data.description, readingTime: data.readingTime };
     }),
     save: jest.fn(),
     reset: jest.fn(() => {
@@ -114,10 +118,10 @@ describe('enricher', () => {
     expect(scraper.initBrowser).toHaveBeenCalled();
     expect(enrichArticle).toHaveBeenCalled();
     expect(articles[0].description).toBe('From page');
-    expect(mockedArticleStore.setDescription).toHaveBeenCalledWith(
-      'https://example.com/new',
-      'From page'
-    );
+    expect(mockedArticleStore.setArticleData).toHaveBeenCalledWith('https://example.com/new', {
+      description: 'From page',
+      readingTime: undefined,
+    });
     expect(mockedArticleStore.save).toHaveBeenCalled();
   });
 
@@ -152,6 +156,64 @@ describe('enricher', () => {
     // Should not throw
     await expect(enrichArticles('https://example.com', articles)).resolves.not.toThrow();
     expect(articles[0].description).toBe('');
+  });
+
+  test('applies readingTime from enrichment to article', async () => {
+    // Re-establish scraper mock (previous test may have overridden it)
+    const mockPage = {
+      setUserAgent: jest.fn(),
+      goto: jest.fn(),
+      content: jest
+        .fn()
+        .mockResolvedValue(
+          '<html><head><meta name="description" content="Enriched description"></head><body></body></html>'
+        ),
+      close: jest.fn(),
+    };
+    const mockBrowser = { newPage: jest.fn().mockResolvedValue(mockPage) };
+    jest.mocked(scraper.initBrowser).mockResolvedValue(mockBrowser as never);
+
+    const enrichArticle = jest.fn().mockReturnValue({ description: 'From page', readingTime: 5 });
+    mockedGetExtractor.mockReturnValue({
+      extract: jest.fn().mockReturnValue([]),
+      enrichArticle,
+    });
+
+    const articles = [
+      makeArticle({ link: 'https://example.com/reading', guid: 'https://example.com/reading' }),
+    ];
+    await enrichArticles('https://example.com', articles);
+
+    expect(articles[0].readingTime).toBe(5);
+    expect(mockedArticleStore.setArticleData).toHaveBeenCalledWith('https://example.com/reading', {
+      description: 'From page',
+      readingTime: 5,
+    });
+  });
+
+  test('applies cached readingTime from store', async () => {
+    mockedGetExtractor.mockReturnValue({
+      extract: jest.fn().mockReturnValue([]),
+      enrichArticle: jest.fn(),
+    });
+
+    // Pre-populate the store with description and readingTime
+    mockedArticleStore.setArticleData('https://example.com/cached-rt', {
+      description: 'Cached desc',
+      readingTime: 3,
+    });
+
+    const articles = [
+      makeArticle({
+        link: 'https://example.com/cached-rt',
+        guid: 'https://example.com/cached-rt',
+      }),
+    ];
+    await enrichArticles('https://example.com', articles);
+
+    expect(articles[0].description).toBe('Cached desc');
+    expect(articles[0].readingTime).toBe(3);
+    expect(scraper.initBrowser).not.toHaveBeenCalled();
   });
 
   test('does not save when no articles were enriched', async () => {

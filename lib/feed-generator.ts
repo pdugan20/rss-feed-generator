@@ -30,6 +30,8 @@ class FeedGenerator {
       },
     });
 
+    let hasReadingTime = false;
+
     articles.forEach((article) => {
       const item: Parameters<typeof feed.addItem>[0] = {
         title: article.title,
@@ -43,13 +45,45 @@ class FeedGenerator {
         item.image = article.imageUrl;
       }
 
+      if (article.categories?.length) {
+        item.category = article.categories.map((name) => ({ name }));
+      }
+
+      if (article.readingTime) {
+        hasReadingTime = true;
+        item.extensions = [
+          { name: 'cn:readingTime', objects: { _text: String(article.readingTime) } },
+        ];
+      }
+
       feed.addItem(item);
     });
 
+    let rss = feed.rss2();
+    if (hasReadingTime) {
+      rss = rss.replace(
+        'version="2.0"',
+        'version="2.0" xmlns:cn="https://claudenotes.co/rss-extensions"'
+      );
+    }
+
+    let json = feed.json1();
+    if (hasReadingTime) {
+      const parsed = JSON.parse(json);
+      for (const item of parsed.items) {
+        if (item['cn:readingTime']) {
+          if (!item._cn) item._cn = {};
+          item._cn.readingTime = Number(item['cn:readingTime']._text);
+          delete item['cn:readingTime'];
+        }
+      }
+      json = JSON.stringify(parsed, null, 4);
+    }
+
     return {
-      rss: feed.rss2(),
+      rss,
       atom: feed.atom1(),
-      json: feed.json1(),
+      json,
     };
   }
 

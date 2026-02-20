@@ -39,4 +39,12 @@ function parseDate(dateText: string | undefined | null): Date | null {
   }
 }
 
-export { getExtractor, resolveUrl, parseDate };
+function estimateReadingTime(text: string): number {
+  const words = text
+    .trim()
+    .split(/\s+/)
+    .filter((w) => w.length > 0).length;
+  return Math.max(1, Math.round(words / 238));
+}
+
+export { getExtractor, resolveUrl, parseDate, estimateReadingTime };

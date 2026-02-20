@@ -3,6 +3,7 @@ import path from 'path';
 
 interface StoredArticle {
   description: string;
+  readingTime?: number;
   fetchedAt: string;
 }
 
@@ -43,10 +44,25 @@ class ArticleStore {
     return url in data && data[url].description.length > 0;
   }
 
+  getReadingTime(url: string): number | undefined {
+    const data = this.ensureLoaded();
+    return data[url]?.readingTime;
+  }
+
   setDescription(url: string, description: string): void {
     const data = this.ensureLoaded();
     data[url] = {
+      ...data[url],
       description,
+      fetchedAt: new Date().toISOString(),
+    };
+  }
+
+  setArticleData(url: string, articleData: { description: string; readingTime?: number }): void {
+    const data = this.ensureLoaded();
+    data[url] = {
+      description: articleData.description,
+      readingTime: articleData.readingTime,
       fetchedAt: new Date().toISOString(),
     };
   }

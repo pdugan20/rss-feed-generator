@@ -1,5 +1,5 @@
 import type { CheerioAPI } from 'cheerio';
-import { resolveUrl, parseDate } from '../extract';
+import { resolveUrl, parseDate, estimateReadingTime } from '../extract';
 import type { Article } from '../types';
 
 function extract($: CheerioAPI, _url: string): Article[] {
@@ -57,6 +57,15 @@ function extract($: CheerioAPI, _url: string): Article[] {
         .text()
         .trim() || '';
 
+    // Extract categories
+    const categories: string[] = [];
+    $item.find('[class*="category"], [class*="tag"], .card_blog_category').each((_i, el) => {
+      const cat = $(el).text().trim();
+      if (cat && !categories.includes(cat)) {
+        categories.push(cat);
+      }
+    });
+
     // Extract image
     let imageUrl: string | null = null;
     const $img = $item.find('.card_blog_visual_wrap img, img').first();
@@ -72,6 +81,7 @@ function extract($: CheerioAPI, _url: string): Article[] {
       pubDate,
       imageUrl,
       guid: fullUrl,
+      categories: categories.length > 0 ? categories : undefined,
     });
   });
 
@@ -113,14 +123,20 @@ function extract($: CheerioAPI, _url: string): Article[] {
   return articles;
 }
 
-function enrichArticle($: CheerioAPI, _url: string): { description?: string } {
+function enrichArticle(
+  $: CheerioAPI,
+  _url: string
+): { description?: string; readingTime?: number } {
   const desc =
     $('meta[name="description"]').attr('content') ||
     $('meta[property="og:description"]').attr('content') ||
     $('article p, .blog-content p, main p').first().text().trim() ||
     '';
 
-  return { description: desc.substring(0, 500) || undefined };
+  const bodyText = $('article, .blog-content, main').first().text().trim();
+  const readingTime = bodyText.length > 0 ? estimateReadingTime(bodyText) : undefined;
+
+  return { description: desc.substring(0, 500) || undefined, readingTime };
 }
 
 export { extract, enrichArticle };

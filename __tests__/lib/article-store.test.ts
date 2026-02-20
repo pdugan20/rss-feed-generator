@@ -79,6 +79,33 @@ describe('article-store', () => {
     expect(articleStore.getDescription('https://example.com/corrupt')).toBeUndefined();
   });
 
+  test('stores and retrieves readingTime via setArticleData', () => {
+    articleStore.setArticleData('https://example.com/rt', {
+      description: 'A description',
+      readingTime: 5,
+    });
+    expect(articleStore.getDescription('https://example.com/rt')).toBe('A description');
+    expect(articleStore.getReadingTime('https://example.com/rt')).toBe(5);
+  });
+
+  test('getReadingTime returns undefined for articles without it', () => {
+    articleStore.setDescription('https://example.com/no-rt', 'A description');
+    expect(articleStore.getReadingTime('https://example.com/no-rt')).toBeUndefined();
+  });
+
+  test('readingTime persists to disk and reloads', () => {
+    articleStore.setArticleData('https://example.com/rt-persist', {
+      description: 'Desc',
+      readingTime: 8,
+    });
+    articleStore.save();
+
+    articleStore.reset();
+
+    expect(articleStore.getReadingTime('https://example.com/rt-persist')).toBe(8);
+    expect(articleStore.getDescription('https://example.com/rt-persist')).toBe('Desc');
+  });
+
   test('setDescription records fetchedAt timestamp', () => {
     articleStore.setDescription('https://example.com/timestamp', 'test');
     articleStore.save();
