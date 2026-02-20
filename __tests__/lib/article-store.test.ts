@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 
 // Set DATA_DIR before importing article-store so it uses our test directory
-const TEST_DATA_DIR = path.join(__dirname, '..', '..', 'data-test');
+const TEST_DATA_DIR = path.join(__dirname, '..', '..', 'data-test-article-store');
 process.env.DATA_DIR = TEST_DATA_DIR;
 
 import articleStore from '../../lib/article-store';

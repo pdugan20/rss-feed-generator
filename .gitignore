@@ -10,3 +10,4 @@ coverage/
 .railway/
 page-content.html
 data/
+data-test*/
