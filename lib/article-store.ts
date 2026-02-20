@@ -79,6 +79,19 @@ class ArticleStore {
     fs.renameSync(STORE_TMP, STORE_FILE);
   }
 
+  /** Clear readingTime from all entries to force re-enrichment */
+  clearReadingTimes(): number {
+    const data = this.ensureLoaded();
+    let cleared = 0;
+    for (const url of Object.keys(data)) {
+      if (data[url].readingTime !== undefined) {
+        delete data[url].readingTime;
+        cleared++;
+      }
+    }
+    return cleared;
+  }
+
   /** Reset in-memory state (for testing) */
   reset(): void {
     this.data = null;

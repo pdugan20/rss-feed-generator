@@ -7,6 +7,7 @@ import cache from './lib/cache';
 import feedStore from './lib/feed-store';
 import { feedUrls, feeds } from './lib/feeds';
 import { enrichArticles } from './lib/enricher';
+import articleStore from './lib/article-store';
 import type { FeedFormat, GeneratedFeeds } from './lib/types';
 
 const ALLOWED_FEEDS: string[] = feedUrls;
@@ -100,7 +101,7 @@ function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   // Manual refresh endpoint (protected with API key)
   fastify.post('/refresh', async (request: FastifyRequest, reply: FastifyReply) => {
     const apiKey = (request.headers as Record<string, string>)['api_key'];
-    const { url } = (request.body as { url?: string }) || {};
+    const { url, force } = (request.body as { url?: string; force?: boolean }) || {};
 
     // Check API key
     const validApiKey = process.env.API_KEY || 'your-secret-api-key';
@@ -112,6 +113,13 @@ function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
     }
 
     try {
+      // Clear cached reading times to force re-enrichment
+      if (force) {
+        const cleared = articleStore.clearReadingTimes();
+        articleStore.save();
+        console.log(`Force refresh: cleared ${cleared} cached reading times`);
+      }
+
       if (url) {
         // Refresh specific feed if URL provided
         if (!ALLOWED_FEEDS.includes(url)) {

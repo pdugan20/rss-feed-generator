@@ -133,7 +133,17 @@ function enrichArticle(
     $('article p, .blog-content p, main p').first().text().trim() ||
     '';
 
-  const bodyText = $('article, .blog-content, main').first().text().trim();
+  // Extract article body text for word count - use specific content selectors
+  // to avoid counting nav, footer, and sidebar text
+  const $content = $('.u-rich-text-blog').first();
+  const bodyText =
+    $content.length > 0
+      ? $content.text().trim()
+      : $('article p, .blog-content p, main p')
+          .map((_i, el) => $(el).text())
+          .get()
+          .join(' ')
+          .trim();
   const readingTime = bodyText.length > 0 ? estimateReadingTime(bodyText) : undefined;
 
   return { description: desc.substring(0, 500) || undefined, readingTime };

@@ -112,7 +112,13 @@ function enrichArticle(
     $('article p, .post-content p, main p').first().text().trim() ||
     '';
 
-  const bodyText = $('article, .post-content, main').first().text().trim();
+  // Extract article body text for word count - use paragraph selectors
+  // to avoid counting nav, footer, and sidebar text
+  const bodyText = $('article p, .post-content p, main#main-content p')
+    .map((_i, el) => $(el).text())
+    .get()
+    .join(' ')
+    .trim();
   const readingTime = bodyText.length > 0 ? estimateReadingTime(bodyText) : undefined;
 
   return {
