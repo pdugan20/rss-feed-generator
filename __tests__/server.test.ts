@@ -2,7 +2,7 @@ import scraper from '../lib/scraper';
 import cache from '../lib/cache';
 import feedGenerator from '../lib/feed-generator';
 import feedStore from '../lib/feed-store';
-import { buildApp, ALLOWED_FEEDS } from '../server';
+import { buildApp, ALLOWED_FEEDS, releaseRefreshLock } from '../server';
 import { feedUrls, feeds } from '../lib/feeds';
 import type { FastifyInstance } from 'fastify';
 import type { GeneratedFeeds } from '../lib/types';
@@ -11,6 +11,13 @@ jest.mock('../lib/scraper');
 jest.mock('../lib/cache');
 jest.mock('../lib/feed-generator');
 jest.mock('../lib/feed-store');
+jest.mock('../lib/enricher', () => ({
+  enrichArticles: jest.fn().mockResolvedValue(undefined),
+}));
+jest.mock('../lib/article-store', () => ({
+  clearReadingTimes: jest.fn().mockReturnValue(0),
+  save: jest.fn(),
+}));
 
 const mockedScraper = jest.mocked(scraper);
 const mockedCache = jest.mocked(cache);
@@ -34,6 +41,7 @@ beforeAll(() => {
 
 beforeEach(async () => {
   jest.clearAllMocks();
+  releaseRefreshLock();
   mockedCache.get.mockReturnValue(undefined);
   mockedFeedGenerator.getContentType.mockImplementation((format) => {
     if (format === 'atom') return 'application/atom+xml; charset=utf-8';
@@ -446,5 +454,166 @@ describe('GET /debug-dates', () => {
   test('returns 404 (endpoint removed)', async () => {
     const response = await app.inject({ method: 'GET', url: '/debug-dates' });
     expect(response.statusCode).toBe(404);
+  });
+});
+
+describe('POST /refresh concurrency lock', () => {
+  test('returns 409 when a refresh is already in progress', async () => {
+    // Make scrapeArticles hang so the first request holds the lock
+    let resolveFirst: () => void;
+    const firstHangs = new Promise<void>((resolve) => {
+      resolveFirst = resolve;
+    });
+    mockedScraper.scrapeArticles.mockImplementationOnce(async () => {
+      await firstHangs;
+      return {
+        articles: [
+          {
+            title: 'Test',
+            link: 'https://example.com/1',
+            description: 'desc',
+            pubDate: new Date(),
+            imageUrl: null,
+            guid: 'https://example.com/1',
+          },
+        ],
+        pageTitle: 'Test',
+      };
+    });
+    mockedFeedGenerator.generateFeeds.mockResolvedValue(MOCK_FEEDS);
+
+    // Start first refresh (will hang on scrapeArticles)
+    const first = app.inject({
+      method: 'POST',
+      url: '/refresh',
+      headers: { 'content-type': 'application/json', api_key: TEST_API_KEY },
+      payload: JSON.stringify({ url: MARINERS_URL }),
+    });
+
+    // Give the first request time to acquire the lock
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    // Second request should be rejected
+    const second = await app.inject({
+      method: 'POST',
+      url: '/refresh',
+      headers: { 'content-type': 'application/json', api_key: TEST_API_KEY },
+      payload: JSON.stringify({ url: MARINERS_URL }),
+    });
+
+    expect(second.statusCode).toBe(409);
+    const body = JSON.parse(second.body);
+    expect(body.error).toContain('already in progress');
+    expect(body.started_seconds_ago).toBeDefined();
+
+    // Unblock first request so it completes
+    resolveFirst!();
+    const firstResponse = await first;
+    expect(firstResponse.statusCode).toBe(200);
+  });
+
+  test('releases lock after successful refresh', async () => {
+    mockedScraper.scrapeArticles.mockResolvedValue({
+      articles: [
+        {
+          title: 'Test',
+          link: 'https://example.com/1',
+          description: 'desc',
+          pubDate: new Date(),
+          imageUrl: null,
+          guid: 'https://example.com/1',
+        },
+      ],
+      pageTitle: 'Test',
+    });
+    mockedFeedGenerator.generateFeeds.mockResolvedValue(MOCK_FEEDS);
+
+    // First refresh completes
+    const first = await app.inject({
+      method: 'POST',
+      url: '/refresh',
+      headers: { 'content-type': 'application/json', api_key: TEST_API_KEY },
+      payload: JSON.stringify({ url: MARINERS_URL }),
+    });
+    expect(first.statusCode).toBe(200);
+
+    // Second refresh should succeed (lock released)
+    const second = await app.inject({
+      method: 'POST',
+      url: '/refresh',
+      headers: { 'content-type': 'application/json', api_key: TEST_API_KEY },
+      payload: JSON.stringify({ url: MARINERS_URL }),
+    });
+    expect(second.statusCode).toBe(200);
+  });
+
+  test('releases lock after failed refresh', async () => {
+    mockedScraper.scrapeArticles.mockRejectedValueOnce(new Error('Scrape failed'));
+
+    const first = await app.inject({
+      method: 'POST',
+      url: '/refresh',
+      headers: { 'content-type': 'application/json', api_key: TEST_API_KEY },
+      payload: JSON.stringify({ url: MARINERS_URL }),
+    });
+    expect(first.statusCode).toBe(500);
+
+    // Lock should be released, next request succeeds
+    mockedScraper.scrapeArticles.mockResolvedValue({
+      articles: [
+        {
+          title: 'Test',
+          link: 'https://example.com/1',
+          description: 'desc',
+          pubDate: new Date(),
+          imageUrl: null,
+          guid: 'https://example.com/1',
+        },
+      ],
+      pageTitle: 'Test',
+    });
+    mockedFeedGenerator.generateFeeds.mockResolvedValue(MOCK_FEEDS);
+
+    const second = await app.inject({
+      method: 'POST',
+      url: '/refresh',
+      headers: { 'content-type': 'application/json', api_key: TEST_API_KEY },
+      payload: JSON.stringify({ url: MARINERS_URL }),
+    });
+    expect(second.statusCode).toBe(200);
+  });
+
+  test('does not require lock for auth-rejected requests', async () => {
+    // Manually hold the lock
+    // (simulate by sending a hanging request first)
+    let resolveFirst: () => void;
+    const firstHangs = new Promise<void>((resolve) => {
+      resolveFirst = resolve;
+    });
+    mockedScraper.scrapeArticles.mockImplementationOnce(async () => {
+      await firstHangs;
+      return { articles: [], pageTitle: 'Test' };
+    });
+
+    const first = app.inject({
+      method: 'POST',
+      url: '/refresh',
+      headers: { 'content-type': 'application/json', api_key: TEST_API_KEY },
+      payload: '{}',
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    // Auth-rejected request should return 401, not 409
+    const authFail = await app.inject({
+      method: 'POST',
+      url: '/refresh',
+      headers: { 'content-type': 'application/json', api_key: 'wrong-key' },
+      payload: '{}',
+    });
+    expect(authFail.statusCode).toBe(401);
+
+    resolveFirst!();
+    await first;
   });
 });

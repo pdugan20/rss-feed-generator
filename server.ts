@@ -12,6 +12,36 @@ import type { FeedFormat, GeneratedFeeds } from './lib/types';
 
 const ALLOWED_FEEDS: string[] = feedUrls;
 const VALID_FORMATS: FeedFormat[] = ['rss', 'atom', 'json'];
+const REFRESH_LOCK_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
+
+interface RefreshLock {
+  active: boolean;
+  startedAt: number;
+}
+
+const refreshLock: RefreshLock = { active: false, startedAt: 0 };
+
+function isRefreshLocked(): boolean {
+  if (!refreshLock.active) return false;
+  // Auto-expire stale locks (e.g. process survived but handler crashed)
+  if (Date.now() - refreshLock.startedAt > REFRESH_LOCK_TIMEOUT_MS) {
+    refreshLock.active = false;
+    return false;
+  }
+  return true;
+}
+
+function acquireRefreshLock(): boolean {
+  if (isRefreshLocked()) return false;
+  refreshLock.active = true;
+  refreshLock.startedAt = Date.now();
+  return true;
+}
+
+function releaseRefreshLock(): void {
+  refreshLock.active = false;
+  refreshLock.startedAt = 0;
+}
 
 function parseFormat(value: string | undefined): FeedFormat {
   if (value && VALID_FORMATS.includes(value as FeedFormat)) {
@@ -109,6 +139,16 @@ function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
       return reply.code(401).send({
         error: 'Invalid or missing API key',
         hint: 'Include api_key in headers',
+      });
+    }
+
+    // Prevent concurrent refreshes from overloading the server
+    if (!acquireRefreshLock()) {
+      const elapsed = Math.round((Date.now() - refreshLock.startedAt) / 1000);
+      return reply.code(409).send({
+        error: 'A refresh is already in progress',
+        started_seconds_ago: elapsed,
+        hint: 'Wait for the current refresh to complete before starting another',
       });
     }
 
@@ -212,6 +252,8 @@ function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
         error: 'Failed to refresh feed',
         message: (error as Error).message,
       });
+    } finally {
+      releaseRefreshLock();
     }
   });
 
@@ -310,4 +352,4 @@ if (require.main === module) {
   start();
 }
 
-export { buildApp, ALLOWED_FEEDS };
+export { buildApp, ALLOWED_FEEDS, releaseRefreshLock };
