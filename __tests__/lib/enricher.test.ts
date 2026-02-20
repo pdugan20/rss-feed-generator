@@ -85,14 +85,17 @@ describe('enricher', () => {
     expect(articles[0].description).toBe('');
   });
 
-  test('applies cached description from store', async () => {
+  test('applies cached description and readingTime from store', async () => {
     mockedGetExtractor.mockReturnValue({
       extract: jest.fn().mockReturnValue([]),
       enrichArticle: jest.fn(),
     });
 
-    // Pre-populate the store
-    mockedArticleStore.setDescription('https://example.com/cached', 'Cached desc');
+    // Pre-populate the store with both description and readingTime
+    mockedArticleStore.setArticleData('https://example.com/cached', {
+      description: 'Cached desc',
+      readingTime: 4,
+    });
 
     const articles = [
       makeArticle({ link: 'https://example.com/cached', guid: 'https://example.com/cached' }),
@@ -100,6 +103,7 @@ describe('enricher', () => {
     await enrichArticles('https://example.com', articles);
 
     expect(articles[0].description).toBe('Cached desc');
+    expect(articles[0].readingTime).toBe(4);
     expect(scraper.initBrowser).not.toHaveBeenCalled();
   });
 
@@ -222,15 +226,18 @@ describe('enricher', () => {
       enrichArticle: jest.fn(),
     });
 
-    // All articles already cached
-    mockedArticleStore.setDescription('https://example.com/a', 'Cached A');
+    // All articles already fully cached (description + readingTime)
+    mockedArticleStore.setArticleData('https://example.com/a', {
+      description: 'Cached A',
+      readingTime: 3,
+    });
 
     const articles = [
       makeArticle({ link: 'https://example.com/a', guid: 'https://example.com/a' }),
     ];
     await enrichArticles('https://example.com', articles);
 
-    // save() should have been called by setDescription in setup, but not by enrichArticles
+    // save() should have been called by setArticleData in setup, but not by enrichArticles
     // Clear the mock calls from setup
     mockedArticleStore.save.mockClear();
     await enrichArticles('https://example.com', articles);

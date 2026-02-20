@@ -16,15 +16,18 @@ async function enrichArticles(feedUrl: string, articles: Article[]): Promise<voi
   for (const article of articles) {
     // Apply cached data if available
     const cached = articleStore.getDescription(article.link);
+    const cachedReadingTime = articleStore.getReadingTime(article.link);
     if (cached) {
       if (!article.description) {
         article.description = cached;
       }
-      const cachedReadingTime = articleStore.getReadingTime(article.link);
       if (cachedReadingTime && !article.readingTime) {
         article.readingTime = cachedReadingTime;
       }
-      continue;
+      // Skip re-scraping only if readingTime is already cached
+      if (cachedReadingTime) {
+        continue;
+      }
     }
 
     // Scrape individual article page for enrichment
@@ -47,14 +50,13 @@ async function enrichArticles(feedUrl: string, articles: Article[]): Promise<voi
         const result = extractor.enrichArticle($, article.link);
 
         if (result.description || result.readingTime) {
-          if (result.description) {
-            articleStore.setArticleData(article.link, {
-              description: result.description,
-              readingTime: result.readingTime,
-            });
-            if (!article.description) {
-              article.description = result.description;
-            }
+          const descToStore = result.description || cached || '';
+          articleStore.setArticleData(article.link, {
+            description: descToStore,
+            readingTime: result.readingTime,
+          });
+          if (result.description && !article.description) {
+            article.description = result.description;
           }
           if (result.readingTime && !article.readingTime) {
             article.readingTime = result.readingTime;
