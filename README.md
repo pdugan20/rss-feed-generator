@@ -38,14 +38,16 @@ The server runs at `http://localhost:3000`. See [docs/API.md](docs/API.md) for e
 
 ## Adding a New Feed
 
-Adding a new feed requires exactly 4 file changes (enforced by architecture tests):
+Each feed requires exactly 4 files (enforced by architecture tests):
 
-1. Create `lib/extractors/<name>.ts` -- export `{ extract }` where `extract($: CheerioAPI, url: string)` returns `Article[]`
-2. Add entry to `lib/feeds.ts` -- `{ url, extractor, label }` typed as `FeedConfig`
-3. Register in `lib/extract.ts` -- add `'<name>': require('./extractors/<name>')` to the registry
-4. Create `__tests__/lib/extractors/<name>.test.ts` -- test against sample HTML fixtures
+| File                                      | Purpose                                                |
+| ----------------------------------------- | ------------------------------------------------------ |
+| `lib/extractors/<name>.ts`                | Extractor with `extract($, url)` returning `Article[]` |
+| `lib/feeds.ts`                            | Add `FeedConfig` entry (url, extractor, label)         |
+| `lib/extract.ts`                          | Register extractor in the registry                     |
+| `__tests__/lib/extractors/<name>.test.ts` | Tests against sample HTML fixtures                     |
 
-Optionally, export an `enrichArticle($: CheerioAPI, url: string)` function from the extractor to enable per-article description enrichment.
+For article enrichment, also export `enrichArticle($, url)` from the extractor.
 
 ## Development
 
