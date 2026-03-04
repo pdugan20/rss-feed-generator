@@ -11,3 +11,4 @@ coverage/
 page-content.html
 data/
 data-test*/
+.claudelint-cache/

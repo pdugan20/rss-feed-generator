@@ -40,3 +40,10 @@ jobs:
         env:
           API_KEY: test-api-key
           NODE_ENV: test
+
+  claudelint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Lint Claude Code config
+        run: npx claude-code-lint@latest

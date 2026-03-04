@@ -1,10 +1,8 @@
 # RSS Feed Generator
 
-[![CI](https://github.com/pdugan20/rss-feed-generator/actions/workflows/ci.yml/badge.svg)](https://github.com/pdugan20/rss-feed-generator/actions/workflows/ci.yml)
-[![TypeScript](https://img.shields.io/badge/TypeScript-strict-blue?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
-[![Node.js](https://img.shields.io/badge/Node.js-%3E%3D20-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Code Style: Prettier](https://img.shields.io/badge/code_style-prettier-ff69b4.svg)](https://prettier.io/)
+[![CI](https://github.com/pdugan20/rss-feed-generator/workflows/CI/badge.svg)](https://github.com/pdugan20/rss-feed-generator/actions)
+[![Node.js >= 20](https://img.shields.io/badge/Node.js-%3E%3D20-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 A secure, whitelisted feed generator with pluggable per-site extractors and automatic daily updates. Generates RSS 2.0, Atom 1.0, and JSON Feed 1.0 from websites that don't provide their own.
 
@@ -257,20 +255,3 @@ lib/
   article-store.ts      Persistent article metadata (descriptions)
   cache.ts              In-memory cache (24h TTL)
 ```
-
-## Tech Stack
-
-- **TypeScript** - Strict mode, compiled to `dist/` for production
-- **Fastify** - High-performance web framework
-- **Puppeteer** - Headless Chrome for JavaScript-rendered pages
-- **Cheerio** - Server-side DOM manipulation
-- **Railway Cron** - Scheduled tasks
-- **Feed** - Multi-format feed generation (RSS 2.0, Atom 1.0, JSON Feed 1.0)
-- **Node-Cache** - In-memory caching
-- **Jest + ts-jest** - Testing framework with TypeScript support
-- **Husky + lint-staged** - Pre-commit/pre-push hooks
-- **ESLint + Prettier** - Linting and formatting
-
-## License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
