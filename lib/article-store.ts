@@ -4,6 +4,7 @@ import path from 'path';
 interface StoredArticle {
   description: string;
   readingTime?: number;
+  pubDate?: string;
   fetchedAt: string;
 }
 
@@ -49,6 +50,14 @@ class ArticleStore {
     return data[url]?.readingTime;
   }
 
+  getPubDate(url: string): Date | null {
+    const data = this.ensureLoaded();
+    const stored = data[url]?.pubDate;
+    if (!stored) return null;
+    const parsed = new Date(stored);
+    return isNaN(parsed.getTime()) ? null : parsed;
+  }
+
   setDescription(url: string, description: string): void {
     const data = this.ensureLoaded();
     data[url] = {
@@ -58,11 +67,15 @@ class ArticleStore {
     };
   }
 
-  setArticleData(url: string, articleData: { description: string; readingTime?: number }): void {
+  setArticleData(
+    url: string,
+    articleData: { description: string; readingTime?: number; pubDate?: Date | null }
+  ): void {
     const data = this.ensureLoaded();
     data[url] = {
       description: articleData.description,
       readingTime: articleData.readingTime,
+      pubDate: articleData.pubDate?.toISOString() ?? data[url]?.pubDate,
       fetchedAt: new Date().toISOString(),
     };
   }

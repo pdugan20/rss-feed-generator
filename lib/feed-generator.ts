@@ -33,12 +33,14 @@ class FeedGenerator {
     let hasReadingTime = false;
 
     articles.forEach((article) => {
+      const articleDate = article.pubDate || new Date();
       const item: Parameters<typeof feed.addItem>[0] = {
         title: article.title,
         id: article.guid || article.link,
         link: article.link,
         description: article.description || article.title,
-        date: article.pubDate || new Date(),
+        date: articleDate,
+        published: articleDate,
       };
 
       if (article.imageUrl) {

@@ -2,6 +2,7 @@ import fs from 'fs';
 import puppeteer, { Browser } from 'puppeteer';
 import * as cheerio from 'cheerio';
 import { getExtractor } from './extract';
+import articleStore from './article-store';
 import type { Article } from './types';
 
 interface ScrapeResult {
@@ -68,11 +69,38 @@ class Scraper {
       const extractor = getExtractor(url);
       const articles = extractor.extract($, url);
 
-      // Default null pubDates to now
+      // Resolve pubDates: DOM date > stored date > first-seen (now)
+      let needsSave = false;
       for (const article of articles) {
-        if (!article.pubDate) {
-          article.pubDate = new Date();
+        if (article.pubDate) {
+          // DOM provided a date — persist it
+          const existing = articleStore.getPubDate(article.link);
+          if (!existing || existing.getTime() !== article.pubDate.getTime()) {
+            articleStore.setArticleData(article.link, {
+              description: articleStore.getDescription(article.link) || '',
+              readingTime: articleStore.getReadingTime(article.link),
+              pubDate: article.pubDate,
+            });
+            needsSave = true;
+          }
+        } else {
+          // No DOM date — fall back to stored date or first-seen
+          const stored = articleStore.getPubDate(article.link);
+          if (stored) {
+            article.pubDate = stored;
+          } else {
+            article.pubDate = new Date();
+            articleStore.setArticleData(article.link, {
+              description: articleStore.getDescription(article.link) || '',
+              readingTime: articleStore.getReadingTime(article.link),
+              pubDate: article.pubDate,
+            });
+            needsSave = true;
+          }
         }
+      }
+      if (needsSave) {
+        articleStore.save();
       }
 
       return { articles, pageTitle };
