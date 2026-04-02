@@ -2,26 +2,24 @@ import cache from '../../lib/cache';
 import feedGenerator from '../../lib/feed-generator';
 import feedStore from '../../lib/feed-store';
 import { feedUrls } from '../../lib/feeds';
-import type schedulerType from '../../lib/scheduler';
 import * as articleSource from '../../lib/article-source';
+import scheduler from '../../lib/scheduler';
 
 jest.mock('../../lib/article-source');
 jest.mock('../../lib/cache');
 jest.mock('../../lib/feed-generator');
 jest.mock('../../lib/feed-store');
+jest.mock('../../lib/enricher', () => ({
+  enrichArticles: jest.fn().mockResolvedValue(undefined),
+}));
 
 const mockedArticleSource = jest.mocked(articleSource);
 const mockedCache = jest.mocked(cache);
 const mockedFeedGenerator = jest.mocked(feedGenerator);
 const mockedFeedStore = jest.mocked(feedStore);
 
-let scheduler: typeof schedulerType;
-
 beforeEach(() => {
   jest.clearAllMocks();
-  jest.isolateModules(() => {
-    scheduler = require('../../lib/scheduler');
-  });
 });
 
 describe('Scheduler', () => {
