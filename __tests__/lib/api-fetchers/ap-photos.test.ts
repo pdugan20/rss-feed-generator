@@ -66,7 +66,7 @@ describe('ap-photos API fetcher', () => {
     const articles = await fetcher.fetch();
     const article = articles[0];
 
-    expect(article.title).toBe('Yankees Mariners Baseball');
+    expect(article.title).toBe('Apr 1 vs Yankees — Luis Castillo');
     expect(article.link).toBe(
       'https://newsroom.ap.org/editorial-photos-videos/detail?itemid=abc123&mediatype=photo'
     );
@@ -141,11 +141,58 @@ describe('ap-photos API fetcher', () => {
     global.fetch = mockFetchResponse([minimalHit]);
     const articles = await fetcher.fetch();
     expect(articles).toHaveLength(1);
-    expect(articles[0].title).toBe('AP Photo');
+    expect(articles[0].title).toBe('AP Photo'); // no date, no opponent — raw fallback
     expect(articles[0].pubDate).toBeNull();
     expect(articles[0].categories).toEqual([]);
     expect(articles[0].imageWidth).toBeUndefined();
     expect(articles[0].imageHeight).toBeUndefined();
+  });
+
+  test('builds title with date + opponent + person for game photos', async () => {
+    global.fetch = mockFetchResponse([MARINERS_HIT]);
+    const articles = await fetcher.fetch();
+    expect(articles[0].title).toBe('Apr 1 vs Yankees — Luis Castillo');
+  });
+
+  test('builds title with date + opponent when no persons', async () => {
+    const noPersonsHit = {
+      _source: {
+        ...MARINERS_HIT._source,
+        itemid: 'noperson',
+        persons: [],
+      },
+    };
+    global.fetch = mockFetchResponse([noPersonsHit]);
+    const articles = await fetcher.fetch();
+    expect(articles[0].title).toBe('Apr 1 vs Yankees');
+  });
+
+  test('builds title with date + raw headline for non-game photos', async () => {
+    const nonGameHit = {
+      _source: {
+        ...MARINERS_HIT._source,
+        itemid: 'nongame',
+        headline: 'Mariners Spring Training',
+        persons: [],
+      },
+    };
+    global.fetch = mockFetchResponse([nonGameHit]);
+    const articles = await fetcher.fetch();
+    expect(articles[0].title).toBe('Apr 1: Mariners Spring Training');
+  });
+
+  test('builds title with away game pattern', async () => {
+    const awayHit = {
+      _source: {
+        ...MARINERS_HIT._source,
+        itemid: 'away',
+        headline: 'Mariners Angels Baseball',
+        persons: [{ name: 'Julio Rodriguez' }],
+      },
+    };
+    global.fetch = mockFetchResponse([awayHit]);
+    const articles = await fetcher.fetch();
+    expect(articles[0].title).toBe('Apr 1 vs Angels — Julio Rodriguez');
   });
 
   test('caps at 30 articles', async () => {
