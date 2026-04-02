@@ -1,14 +1,19 @@
 import 'dotenv/config';
+import { createHash } from 'crypto';
 import Fastify, { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import cors from '@fastify/cors';
-import scraper from './lib/scraper';
 import feedGenerator from './lib/feed-generator';
+import { fetchArticles } from './lib/article-source';
 import cache from './lib/cache';
 import feedStore from './lib/feed-store';
-import { feedUrls, feeds } from './lib/feeds';
+import { feedUrls, feeds, getFeedConfig } from './lib/feeds';
 import { enrichArticles } from './lib/enricher';
 import articleStore from './lib/article-store';
 import type { FeedFormat, GeneratedFeeds } from './lib/types';
+
+function generateETag(content: string): string {
+  return `"${createHash('md5').update(content).digest('hex')}"`;
+}
 
 const ALLOWED_FEEDS: string[] = feedUrls;
 const VALID_FORMATS: FeedFormat[] = ['rss', 'atom', 'json'];
@@ -173,7 +178,7 @@ function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
         const cacheKey = `feed:${url}`;
         cache.del(cacheKey);
 
-        const { articles, pageTitle } = await scraper.scrapeArticles(url);
+        const { articles, pageTitle } = await fetchArticles(url);
         if (articles && articles.length > 0) {
           await enrichArticles(url, articles);
           const generatedFeeds = await feedGenerator.generateFeeds(url, articles, pageTitle);
@@ -206,7 +211,7 @@ function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
             const cacheKey = `feed:${feedUrl}`;
             cache.del(cacheKey);
 
-            const { articles, pageTitle } = await scraper.scrapeArticles(feedUrl);
+            const { articles, pageTitle } = await fetchArticles(feedUrl);
 
             if (articles && articles.length > 0) {
               await enrichArticles(feedUrl, articles);
@@ -283,28 +288,43 @@ function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
       }
 
       try {
+        const config = getFeedConfig(url);
+        const cacheTtlMs = config?.cacheTtlMs;
+        const cacheMaxAgeSec = cacheTtlMs ? Math.round(cacheTtlMs / 1000) : 86400;
         const cacheKey = `feed:${url}`;
-        const cached = cache.get<GeneratedFeeds>(cacheKey);
 
+        // Helper: set caching headers and handle conditional requests
+        const sendFeed = (content: string, cacheSource: string) => {
+          const etag = generateETag(content);
+          const clientETag = request.headers['if-none-match'];
+          if (clientETag === etag) {
+            return reply.code(304).send();
+          }
+
+          reply.header('Content-Type', feedGenerator.getContentType(format));
+          reply.header('X-Cache', cacheSource);
+          reply.header('ETag', etag);
+          reply.header('Last-Modified', new Date().toUTCString());
+          reply.header('Cache-Control', `public, max-age=${Math.min(cacheMaxAgeSec, 300)}`);
+          return reply.send(content);
+        };
+
+        const cached = cache.get<GeneratedFeeds>(cacheKey);
         if (cached) {
           fastify.log.info(`Serving memory-cached feed for ${url} (${format})`);
-          reply.header('Content-Type', feedGenerator.getContentType(format));
-          reply.header('X-Cache', 'HIT');
-          return reply.send(cached[format]);
+          return sendFeed(cached[format], 'HIT');
         }
 
-        // Check disk cache
+        // Check disk cache with per-feed TTL
         const diskEntry = feedStore.get(url);
-        if (diskEntry && !feedStore.isStale(url)) {
+        if (diskEntry && !feedStore.isStale(url, cacheTtlMs)) {
           fastify.log.info(`Serving disk-cached feed for ${url} (${format})`);
           cache.set(cacheKey, diskEntry.feeds);
-          reply.header('Content-Type', feedGenerator.getContentType(format));
-          reply.header('X-Cache', 'DISK');
-          return reply.send(diskEntry.feeds[format]);
+          return sendFeed(diskEntry.feeds[format], 'DISK');
         }
 
-        fastify.log.info(`Scraping ${url}`);
-        const { articles, pageTitle } = await scraper.scrapeArticles(url);
+        fastify.log.info(`Fetching ${url}`);
+        const { articles, pageTitle } = await fetchArticles(url);
 
         if (!articles || articles.length === 0) {
           return reply.code(404).send({
@@ -319,9 +339,7 @@ function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
         cache.set(cacheKey, generatedFeeds);
         feedStore.set(url, generatedFeeds, articles.length);
 
-        reply.header('Content-Type', feedGenerator.getContentType(format));
-        reply.header('X-Cache', 'MISS');
-        return reply.send(generatedFeeds[format]);
+        return sendFeed(generatedFeeds[format], 'MISS');
       } catch (error) {
         fastify.log.error(error);
         return reply.code(500).send({

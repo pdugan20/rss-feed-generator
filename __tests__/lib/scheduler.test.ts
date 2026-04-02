@@ -1,16 +1,16 @@
-import scraper from '../../lib/scraper';
 import cache from '../../lib/cache';
 import feedGenerator from '../../lib/feed-generator';
 import feedStore from '../../lib/feed-store';
 import { feedUrls } from '../../lib/feeds';
 import type schedulerType from '../../lib/scheduler';
+import * as articleSource from '../../lib/article-source';
 
-jest.mock('../../lib/scraper');
+jest.mock('../../lib/article-source');
 jest.mock('../../lib/cache');
 jest.mock('../../lib/feed-generator');
 jest.mock('../../lib/feed-store');
 
-const mockedScraper = jest.mocked(scraper);
+const mockedArticleSource = jest.mocked(articleSource);
 const mockedCache = jest.mocked(cache);
 const mockedFeedGenerator = jest.mocked(feedGenerator);
 const mockedFeedStore = jest.mocked(feedStore);
@@ -71,7 +71,7 @@ describe('Scheduler', () => {
           guid: 'https://example.com/1',
         },
       ];
-      mockedScraper.scrapeArticles.mockResolvedValue({
+      mockedArticleSource.fetchArticles.mockResolvedValue({
         articles: mockArticles,
         pageTitle: 'Test Page',
       });
@@ -83,7 +83,7 @@ describe('Scheduler', () => {
 
       await scheduler.refreshFeeds();
 
-      expect(mockedScraper.scrapeArticles).toHaveBeenCalledTimes(feedUrls.length);
+      expect(mockedArticleSource.fetchArticles).toHaveBeenCalledTimes(feedUrls.length);
       expect(mockedCache.del).toHaveBeenCalledTimes(feedUrls.length);
       expect(mockedFeedGenerator.generateFeeds).toHaveBeenCalledTimes(feedUrls.length);
       expect(mockedCache.set).toHaveBeenCalledTimes(feedUrls.length);
@@ -91,7 +91,7 @@ describe('Scheduler', () => {
     });
 
     test('handles scraper errors gracefully', async () => {
-      mockedScraper.scrapeArticles.mockRejectedValue(new Error('Network error'));
+      mockedArticleSource.fetchArticles.mockRejectedValue(new Error('Network error'));
 
       await expect(scheduler.refreshFeeds()).resolves.toBeUndefined();
       expect(mockedCache.set).not.toHaveBeenCalled();
@@ -99,7 +99,7 @@ describe('Scheduler', () => {
     });
 
     test('skips caching when no articles found', async () => {
-      mockedScraper.scrapeArticles.mockResolvedValue({
+      mockedArticleSource.fetchArticles.mockResolvedValue({
         articles: [],
         pageTitle: 'Empty Page',
       });

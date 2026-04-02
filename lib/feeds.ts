@@ -21,6 +21,14 @@ const feeds: FeedConfig[] = [
     extractor: 'claude-blog',
     label: 'claude-blog',
   },
+  {
+    url: 'https://newsroom.ap.org/editorial-photos-videos/search?query=Lindsey+Wasson&mediaType=photo&st=keyword',
+    extractor: 'ap-photos',
+    label: 'ap-mariners-photos',
+    type: 'api',
+    cacheTtlMs: 2 * 60 * 60 * 1000, // 2 hours
+    maxItems: 30,
+  },
 ];
 
 const feedUrls: string[] = feeds.map((f) => f.url);
@@ -35,4 +43,9 @@ function getLabel(url: string): string | null {
   return entry ? entry.label : null;
 }
 
-export { feeds, feedUrls, getExtractorName, getLabel };
+function getFeedConfig(url: string): FeedConfig | null {
+  const entry = feeds.find((f) => f.url === url);
+  return entry || null;
+}
+
+export { feeds, feedUrls, getExtractorName, getLabel, getFeedConfig };

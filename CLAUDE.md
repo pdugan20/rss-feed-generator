@@ -27,14 +27,19 @@ npm run typecheck        # Type check without emitting (tsc --noEmit)
 
 ```text
 lib/
-├── types.ts              # Shared interfaces (Article, FeedConfig, Extractor)
+├── types.ts              # Shared interfaces (Article, FeedConfig, Extractor, ApiFetcher)
 ├── feeds.ts              # Feed URL + extractor mappings (source of truth)
+├── article-source.ts     # Routing layer: dispatches to scraper or API fetcher
 ├── extract.ts            # Extractor registry + shared helpers
-├── extractors/           # Per-site extraction logic
+├── extractors/           # Per-site DOM extraction logic
 │   ├── seattle-times.ts  # Seattle Times extraction
 │   ├── anthropic.ts      # Anthropic engineering blog
 │   ├── claude-blog.ts    # Claude blog (with enrichment)
+│   ├── ap-photos.ts      # No-op stub (AP uses API fetcher, not DOM)
 │   └── generic.ts        # Generic fallback
+├── api-fetchers/         # API-based feed sources (bypass Puppeteer)
+│   ├── index.ts          # API fetcher registry
+│   └── ap-photos.ts      # AP Newsroom photo search API
 ├── scraper.ts            # Browser management (Puppeteer)
 ├── feed-generator.ts     # Multi-format feed generation (RSS, Atom, JSON)
 ├── feed-store.ts         # Disk-based feed cache
@@ -52,11 +57,13 @@ scripts/                  # Deploy verification scripts
 
 - **Server**: Fastify web framework with CORS support
 - **Scraping**: Puppeteer for JS-rendered pages, Cheerio for DOM parsing
-- **Caching**: 3-tier (in-memory + disk + on-demand scraping)
-- **Feeds**: RSS 2.0, Atom 1.0, JSON Feed 1.0 via `feed` library
+- **API Fetchers**: Direct API integration for sources that can't be scraped (e.g., SPAs)
+- **Routing**: `article-source.ts` dispatches to scraper or API fetcher based on `FeedConfig.type`
+- **Caching**: 3-tier (in-memory + disk + on-demand), per-feed TTL, ETag/304 support
+- **Feeds**: RSS 2.0, Atom 1.0, JSON Feed 1.0 via `feed` library, with Media RSS extensions
 - **Deployment**: Railway with cron service for scheduled refreshes
 
-## Adding a New Feed
+## Adding a New Scrape-Based Feed
 
 Requires exactly 4 file changes (enforced by architecture tests):
 
@@ -64,6 +71,14 @@ Requires exactly 4 file changes (enforced by architecture tests):
 2. Add entry to `lib/feeds.ts`
 3. Register in `lib/extract.ts`
 4. Create `__tests__/lib/extractors/<name>.test.ts`
+
+## Adding a New API-Based Feed
+
+Same 4 files above (extractor can be a no-op stub), plus:
+
+5. Create `lib/api-fetchers/<name>.ts` implementing `ApiFetcher`
+6. Register in `lib/api-fetchers/index.ts`
+7. Set `type: 'api'` in the `lib/feeds.ts` entry
 
 ## Key Patterns
 

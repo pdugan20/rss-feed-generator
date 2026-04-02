@@ -1,4 +1,5 @@
 import type { Article, FeedFormat, GeneratedFeeds } from './types';
+import { getFeedConfig } from './feeds';
 
 class FeedGenerator {
   async generateFeeds(
@@ -13,13 +14,17 @@ class FeedGenerator {
     const baseUrl = process.env.BASE_URL || 'http://localhost:3000';
     const feedUrlBase = `${baseUrl}/feed?url=${encodeURIComponent(sourceUrl)}`;
 
+    const config = getFeedConfig(sourceUrl);
+    const maxItems = config?.maxItems;
+    const feedArticles = maxItems ? articles.slice(0, maxItems) : articles;
+
     const feed = new Feed({
       title: pageTitle || siteName,
       description: `Auto-generated feed from ${siteUrl.hostname}`,
       id: sourceUrl,
       link: sourceUrl,
       language: 'en',
-      image: this.findFavicon(articles),
+      image: this.findFavicon(feedArticles),
       copyright: `${new Date().getFullYear()} ${siteName}`,
       updated: new Date(),
       generator: 'RSS Feed Generator Service',
@@ -31,8 +36,9 @@ class FeedGenerator {
     });
 
     let hasReadingTime = false;
+    let hasMediaContent = false;
 
-    articles.forEach((article) => {
+    feedArticles.forEach((article) => {
       const articleDate = article.pubDate || new Date();
       const item: Parameters<typeof feed.addItem>[0] = {
         title: article.title,
@@ -51,23 +57,56 @@ class FeedGenerator {
         item.category = article.categories.map((name) => ({ name }));
       }
 
+      const extensions: Array<{ name: string; objects: Record<string, unknown> }> = [];
+
       if (article.readingTime) {
         hasReadingTime = true;
-        item.extensions = [
-          { name: 'cn:readingTime', objects: { _text: String(article.readingTime) } },
-        ];
+        extensions.push({
+          name: 'cn:readingTime',
+          objects: { _text: String(article.readingTime) },
+        });
+      }
+
+      if (article.imageUrl && article.imageWidth && article.imageHeight) {
+        hasMediaContent = true;
+        extensions.push({
+          name: 'media:content',
+          objects: {
+            _attributes: {
+              url: article.imageUrl,
+              type: article.imageMimeType || 'image/jpeg',
+              width: String(article.imageWidth),
+              height: String(article.imageHeight),
+              medium: 'image',
+            },
+          },
+        });
+      }
+
+      if (extensions.length > 0) {
+        item.extensions = extensions;
       }
 
       feed.addItem(item);
     });
 
     let rss = feed.rss2();
+
+    // Add namespace declarations and TTL
+    const namespaces: string[] = [];
     if (hasReadingTime) {
-      rss = rss.replace(
-        'version="2.0"',
-        'version="2.0" xmlns:cn="https://claudenotes.co/rss-extensions"'
-      );
+      namespaces.push('xmlns:cn="https://claudenotes.co/rss-extensions"');
     }
+    if (hasMediaContent) {
+      namespaces.push('xmlns:media="http://search.yahoo.com/mrss/"');
+    }
+    if (namespaces.length > 0) {
+      rss = rss.replace('version="2.0"', `version="2.0" ${namespaces.join(' ')}`);
+    }
+
+    // Add <ttl> to RSS (minutes between polls)
+    const ttlMinutes = config?.cacheTtlMs ? Math.round(config.cacheTtlMs / 60000) : 1440;
+    rss = rss.replace('</generator>', `</generator>\n        <ttl>${ttlMinutes}</ttl>`);
 
     let json = feed.json1();
     if (hasReadingTime) {
@@ -98,6 +137,10 @@ class FeedGenerator {
     }
 
     const name = parts[0];
+    // Short names (2-3 chars) like "ap", "bbc" are likely acronyms — uppercase them
+    if (name.length <= 3) {
+      return name.toUpperCase();
+    }
     return name.charAt(0).toUpperCase() + name.slice(1);
   }
 

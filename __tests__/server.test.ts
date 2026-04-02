@@ -1,4 +1,3 @@
-import scraper from '../lib/scraper';
 import cache from '../lib/cache';
 import feedGenerator from '../lib/feed-generator';
 import feedStore from '../lib/feed-store';
@@ -6,8 +5,9 @@ import { buildApp, ALLOWED_FEEDS, releaseRefreshLock } from '../server';
 import { feedUrls, feeds } from '../lib/feeds';
 import type { FastifyInstance } from 'fastify';
 import type { GeneratedFeeds } from '../lib/types';
+import * as articleSource from '../lib/article-source';
 
-jest.mock('../lib/scraper');
+jest.mock('../lib/article-source');
 jest.mock('../lib/cache');
 jest.mock('../lib/feed-generator');
 jest.mock('../lib/feed-store');
@@ -19,7 +19,7 @@ jest.mock('../lib/article-store', () => ({
   save: jest.fn(),
 }));
 
-const mockedScraper = jest.mocked(scraper);
+const mockedArticleSource = jest.mocked(articleSource);
 const mockedCache = jest.mocked(cache);
 const mockedFeedGenerator = jest.mocked(feedGenerator);
 const mockedFeedStore = jest.mocked(feedStore);
@@ -133,7 +133,7 @@ describe('GET /feed', () => {
     expect(response.headers['x-cache']).toBe('HIT');
     expect(response.headers['content-type']).toContain('application/rss+xml');
     expect(response.body).toBe(MOCK_FEEDS.rss);
-    expect(mockedScraper.scrapeArticles).not.toHaveBeenCalled();
+    expect(mockedArticleSource.fetchArticles).not.toHaveBeenCalled();
   });
 
   test('returns cached Atom feed when format=atom', async () => {
@@ -177,7 +177,7 @@ describe('GET /feed', () => {
 
   test('scrapes and returns feed with X-Cache MISS on cache miss', async () => {
     mockedCache.get.mockReturnValue(undefined);
-    mockedScraper.scrapeArticles.mockResolvedValue({
+    mockedArticleSource.fetchArticles.mockResolvedValue({
       articles: [
         {
           title: 'Test Article',
@@ -200,7 +200,7 @@ describe('GET /feed', () => {
     expect(response.statusCode).toBe(200);
     expect(response.headers['x-cache']).toBe('MISS');
     expect(response.body).toBe(MOCK_FEEDS.rss);
-    expect(mockedScraper.scrapeArticles).toHaveBeenCalledWith(MARINERS_URL);
+    expect(mockedArticleSource.fetchArticles).toHaveBeenCalledWith(MARINERS_URL);
     expect(mockedCache.set).toHaveBeenCalled();
     expect(mockedFeedStore.set).toHaveBeenCalled();
   });
@@ -223,7 +223,7 @@ describe('GET /feed', () => {
     expect(response.statusCode).toBe(200);
     expect(response.headers['x-cache']).toBe('DISK');
     expect(response.body).toBe(MOCK_FEEDS.rss);
-    expect(mockedScraper.scrapeArticles).not.toHaveBeenCalled();
+    expect(mockedArticleSource.fetchArticles).not.toHaveBeenCalled();
     expect(mockedCache.set).toHaveBeenCalled();
   });
 
@@ -237,7 +237,7 @@ describe('GET /feed', () => {
     });
     mockedFeedStore.isStale.mockReturnValue(true);
 
-    mockedScraper.scrapeArticles.mockResolvedValue({
+    mockedArticleSource.fetchArticles.mockResolvedValue({
       articles: [
         {
           title: 'Test',
@@ -259,12 +259,12 @@ describe('GET /feed', () => {
 
     expect(response.statusCode).toBe(200);
     expect(response.headers['x-cache']).toBe('MISS');
-    expect(mockedScraper.scrapeArticles).toHaveBeenCalled();
+    expect(mockedArticleSource.fetchArticles).toHaveBeenCalled();
   });
 
   test('returns 404 when scraper finds no articles', async () => {
     mockedCache.get.mockReturnValue(undefined);
-    mockedScraper.scrapeArticles.mockResolvedValue({ articles: [], pageTitle: 'Empty' });
+    mockedArticleSource.fetchArticles.mockResolvedValue({ articles: [], pageTitle: 'Empty' });
 
     const response = await app.inject({
       method: 'GET',
@@ -300,7 +300,7 @@ describe('POST /refresh', () => {
   });
 
   test('refreshes all feeds with valid API key', async () => {
-    mockedScraper.scrapeArticles.mockResolvedValue({
+    mockedArticleSource.fetchArticles.mockResolvedValue({
       articles: [
         {
           title: 'Test',
@@ -329,11 +329,11 @@ describe('POST /refresh', () => {
     const body = JSON.parse(response.body);
     expect(body.status).toBe('success');
     expect(body.results).toHaveLength(feedUrls.length);
-    expect(mockedScraper.scrapeArticles).toHaveBeenCalledTimes(feedUrls.length);
+    expect(mockedArticleSource.fetchArticles).toHaveBeenCalledTimes(feedUrls.length);
   });
 
   test('refreshes specific feed with valid API key and URL', async () => {
-    mockedScraper.scrapeArticles.mockResolvedValue({
+    mockedArticleSource.fetchArticles.mockResolvedValue({
       articles: [
         {
           title: 'Test',
@@ -362,7 +362,7 @@ describe('POST /refresh', () => {
     const body = JSON.parse(response.body);
     expect(body.status).toBe('success');
     expect(body.articles_count).toBe(1);
-    expect(mockedScraper.scrapeArticles).toHaveBeenCalledWith(MARINERS_URL);
+    expect(mockedArticleSource.fetchArticles).toHaveBeenCalledWith(MARINERS_URL);
   });
 
   test('returns 403 for non-whitelisted URL in refresh', async () => {
@@ -464,7 +464,7 @@ describe('POST /refresh concurrency lock', () => {
     const firstHangs = new Promise<void>((resolve) => {
       resolveFirst = resolve;
     });
-    mockedScraper.scrapeArticles.mockImplementationOnce(async () => {
+    mockedArticleSource.fetchArticles.mockImplementationOnce(async () => {
       await firstHangs;
       return {
         articles: [
@@ -513,7 +513,7 @@ describe('POST /refresh concurrency lock', () => {
   });
 
   test('releases lock after successful refresh', async () => {
-    mockedScraper.scrapeArticles.mockResolvedValue({
+    mockedArticleSource.fetchArticles.mockResolvedValue({
       articles: [
         {
           title: 'Test',
@@ -548,7 +548,7 @@ describe('POST /refresh concurrency lock', () => {
   });
 
   test('releases lock after failed refresh', async () => {
-    mockedScraper.scrapeArticles.mockRejectedValueOnce(new Error('Scrape failed'));
+    mockedArticleSource.fetchArticles.mockRejectedValueOnce(new Error('Scrape failed'));
 
     const first = await app.inject({
       method: 'POST',
@@ -559,7 +559,7 @@ describe('POST /refresh concurrency lock', () => {
     expect(first.statusCode).toBe(500);
 
     // Lock should be released, next request succeeds
-    mockedScraper.scrapeArticles.mockResolvedValue({
+    mockedArticleSource.fetchArticles.mockResolvedValue({
       articles: [
         {
           title: 'Test',
@@ -590,7 +590,7 @@ describe('POST /refresh concurrency lock', () => {
     const firstHangs = new Promise<void>((resolve) => {
       resolveFirst = resolve;
     });
-    mockedScraper.scrapeArticles.mockImplementationOnce(async () => {
+    mockedArticleSource.fetchArticles.mockImplementationOnce(async () => {
       await firstHangs;
       return { articles: [], pageTitle: 'Test' };
     });

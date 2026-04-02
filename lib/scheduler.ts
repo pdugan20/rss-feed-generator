@@ -1,9 +1,9 @@
 import cache from './cache';
-import scraper from './scraper';
 import feedGenerator from './feed-generator';
 import feedStore from './feed-store';
 import { feedUrls } from './feeds';
 import { enrichArticles } from './enricher';
+import { fetchArticles } from './article-source';
 
 class Scheduler {
   feeds: string[];
@@ -24,7 +24,7 @@ class Scheduler {
         cache.del(cacheKey);
 
         // Pre-fetch the feed to warm the cache
-        const { articles, pageTitle } = await scraper.scrapeArticles(feedUrl);
+        const { articles, pageTitle } = await fetchArticles(feedUrl);
 
         if (articles && articles.length > 0) {
           await enrichArticles(feedUrl, articles);

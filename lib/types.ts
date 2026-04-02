@@ -9,12 +9,23 @@ export interface Article {
   guid: string;
   readingTime?: number;
   categories?: string[];
+  imageWidth?: number;
+  imageHeight?: number;
+  imageMimeType?: string;
 }
 
 export interface FeedConfig {
   url: string;
   extractor: string;
   label: string;
+  type?: 'scrape' | 'api';
+  cacheTtlMs?: number;
+  maxItems?: number;
+}
+
+export interface ApiFetcher {
+  fetch(): Promise<Article[]>;
+  pageTitle: string;
 }
 
 export interface Extractor {
