@@ -11,20 +11,23 @@ A secure, whitelisted feed generator with pluggable per-site extractors and auto
 - **Multi-format output** - RSS 2.0, Atom 1.0, and JSON Feed 1.0 from a single source
 - **Whitelisted feeds only** - Restricted to pre-configured URLs
 - **Per-site extractors** - Dedicated scraping logic per website for accurate extraction
+- **API-based fetchers** - Direct API integration for sources that can't be scraped (e.g., SPAs)
 - **Article enrichment** - Optional per-article scraping for descriptions from individual pages
-- **3-tier caching** - In-memory + disk + on-demand scraping; disk cache survives deploys
+- **Media RSS support** - `<media:content>` with image dimensions for photo feeds
+- **3-tier caching** - In-memory + disk + on-demand; per-feed TTL, ETag/304 support
 - **Health monitoring** - `/status` endpoint reports per-feed cache health
 
 ## Supported Feeds
 
-| Feed                  | Source                                                                               | RSS                                                                                                                                                     | Category | Enriched |
-| --------------------- | ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- | -------- |
-| UW Huskies Football   | [seattletimes.com](https://www.seattletimes.com/sports/washington-huskies-football/) | [Subscribe](https://rss-feed-generator-production.up.railway.app/feed?url=https%3A%2F%2Fwww.seattletimes.com%2Fsports%2Fwashington-huskies-football%2F) | Sports   | No       |
-| Mariners              | [seattletimes.com](https://www.seattletimes.com/sports/mariners/)                    | [Subscribe](https://rss-feed-generator-production.up.railway.app/feed?url=https%3A%2F%2Fwww.seattletimes.com%2Fsports%2Fmariners%2F)                    | Sports   | No       |
-| Anthropic Engineering | [anthropic.com](https://www.anthropic.com/engineering)                               | [Subscribe](https://rss-feed-generator-production.up.railway.app/feed?url=https%3A%2F%2Fwww.anthropic.com%2Fengineering)                                | Tech     | No       |
-| Claude Blog           | [claude.com](https://claude.com/blog)                                                | [Subscribe](https://rss-feed-generator-production.up.railway.app/feed?url=https%3A%2F%2Fclaude.com%2Fblog)                                              | Tech     | Yes      |
+| Feed                  | Source                                                                                                                    | RSS                                                                                                                                                                                                       | Category | Type   |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- | ------ |
+| UW Huskies Football   | [seattletimes.com](https://www.seattletimes.com/sports/washington-huskies-football/)                                      | [Subscribe](https://rss-feed-generator-production.up.railway.app/feed?url=https%3A%2F%2Fwww.seattletimes.com%2Fsports%2Fwashington-huskies-football%2F)                                                   | Sports   | Scrape |
+| Mariners              | [seattletimes.com](https://www.seattletimes.com/sports/mariners/)                                                         | [Subscribe](https://rss-feed-generator-production.up.railway.app/feed?url=https%3A%2F%2Fwww.seattletimes.com%2Fsports%2Fmariners%2F)                                                                      | Sports   | Scrape |
+| Anthropic Engineering | [anthropic.com](https://www.anthropic.com/engineering)                                                                    | [Subscribe](https://rss-feed-generator-production.up.railway.app/feed?url=https%3A%2F%2Fwww.anthropic.com%2Fengineering)                                                                                  | Tech     | Scrape |
+| Claude Blog           | [claude.com](https://claude.com/blog)                                                                                     | [Subscribe](https://rss-feed-generator-production.up.railway.app/feed?url=https%3A%2F%2Fclaude.com%2Fblog)                                                                                                | Tech     | Scrape |
+| AP Mariners Photos    | [newsroom.ap.org](https://newsroom.ap.org/editorial-photos-videos/search?query=Lindsey+Wasson&mediaType=photo&st=keyword) | [Subscribe](https://rss-feed-generator-production.up.railway.app/feed?url=https%3A%2F%2Fnewsroom.ap.org%2Feditorial-photos-videos%2Fsearch%3Fquery%3DLindsey%2BWasson%26mediaType%3Dphoto%26st%3Dkeyword) | Sports   | API    |
 
-All feeds support `?format=atom` and `?format=json` in addition to the default RSS 2.0.
+All feeds support `?format=atom` and `?format=json` in addition to the default RSS 2.0. The AP Mariners Photos feed includes Media RSS extensions with image dimensions.
 
 ## Quick Start
 
@@ -38,6 +41,8 @@ The server runs at `http://localhost:3000`. See [docs/API.md](docs/API.md) for e
 
 ## Adding a New Feed
 
+### Scrape-based feeds
+
 Each feed requires exactly 4 files (enforced by architecture tests):
 
 | File                                      | Purpose                                                |
@@ -48,6 +53,18 @@ Each feed requires exactly 4 files (enforced by architecture tests):
 | `__tests__/lib/extractors/<name>.test.ts` | Tests against sample HTML fixtures                     |
 
 For article enrichment, also export `enrichArticle($, url)` from the extractor.
+
+### API-based feeds
+
+Same 4 files above (extractor can be a no-op stub), plus:
+
+| File                                        | Purpose                                      |
+| ------------------------------------------- | -------------------------------------------- |
+| `lib/api-fetchers/<name>.ts`                | Fetcher implementing `ApiFetcher` interface  |
+| `lib/api-fetchers/index.ts`                 | Register fetcher in the API fetcher registry |
+| `__tests__/lib/api-fetchers/<name>.test.ts` | Tests with mocked API responses              |
+
+Set `type: 'api'` in the `lib/feeds.ts` entry. Optional `cacheTtlMs` and `maxItems` can be configured per feed.
 
 ## Development
 

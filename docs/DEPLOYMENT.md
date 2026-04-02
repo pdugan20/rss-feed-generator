@@ -57,7 +57,8 @@ railway status      # Check deployment status
 
 - **Automatic:** Configured via Railway Cron (recommended: daily at 6 AM PST using `0 13 * * *`)
 - **Manual:** Use the `/refresh` endpoint with your API key
-- **Cache Duration:** 24 hours (in-memory) + persistent disk cache that survives restarts
+- **Default Cache Duration:** 24 hours (in-memory) + persistent disk cache that survives restarts
+- **Per-feed TTL:** API-based feeds (e.g., AP Photos) can configure shorter cache durations via `cacheTtlMs` in `lib/feeds.ts`
 
 ## Deploy Verification
 
