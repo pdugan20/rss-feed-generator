@@ -84,19 +84,15 @@ class Scraper {
             needsSave = true;
           }
         } else {
-          // No DOM date — fall back to stored date or first-seen
+          // No DOM date — fall back to stored date only.
+          // If no stored date exists either, leave pubDate null so the
+          // feed emits date_modified (not date_published). This prevents
+          // undated articles from appearing "new" on every scrape.
           const stored = articleStore.getPubDate(article.link);
           if (stored) {
             article.pubDate = stored;
-          } else {
-            article.pubDate = new Date();
-            articleStore.setArticleData(article.link, {
-              description: articleStore.getDescription(article.link) || '',
-              readingTime: articleStore.getReadingTime(article.link),
-              pubDate: article.pubDate,
-            });
-            needsSave = true;
           }
+          // else: leave article.pubDate as null — no reliable date exists
         }
       }
       if (needsSave) {

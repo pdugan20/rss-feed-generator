@@ -39,14 +39,18 @@ class FeedGenerator {
     let hasMediaContent = false;
 
     feedArticles.forEach((article) => {
-      const articleDate = article.pubDate || new Date();
+      // Only set `published` when we have a real date from the DOM or
+      // article store. Undated articles get `date` (maps to date_modified
+      // in JSON Feed) but NOT `published` (maps to date_published),
+      // so downstream consumers can distinguish genuine publish dates
+      // from "we don't know when this was published".
       const item: Parameters<typeof feed.addItem>[0] = {
         title: article.title,
         id: article.guid || article.link,
         link: article.link,
         description: article.description || article.title,
-        date: articleDate,
-        published: articleDate,
+        date: article.pubDate || new Date(),
+        ...(article.pubDate ? { published: article.pubDate } : {}),
       };
 
       if (article.imageUrl) {

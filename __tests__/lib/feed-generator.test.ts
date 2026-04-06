@@ -88,6 +88,8 @@ jest.mock('feed', () => {
             url: item.link,
             content_html: item.description,
             image: item.image || undefined,
+            date_modified: (item.date as Date)?.toISOString(),
+            ...(item.published ? { date_published: (item.published as Date).toISOString() } : {}),
           };
           if (Array.isArray(item.category)) {
             jsonItem.tags = (item.category as { name: string }[]).map((c) => c.name);
@@ -305,6 +307,40 @@ describe('FeedGenerator', () => {
       const result = await feedGenerator.generateFeeds(MARINERS_URL, articles, 'Test');
       const parsed = JSON.parse(result.json);
       expect(parsed.items[0].tags).toEqual(['Research']);
+    });
+
+    test('JSON output omits date_published for articles with null pubDate', async () => {
+      const articles: Article[] = [
+        {
+          title: 'Undated Article',
+          link: 'https://example.com/undated',
+          description: 'No publish date available',
+          pubDate: null,
+          imageUrl: null,
+          guid: 'https://example.com/undated',
+        },
+      ];
+      const result = await feedGenerator.generateFeeds(MARINERS_URL, articles, 'Test');
+      const parsed = JSON.parse(result.json);
+      expect(parsed.items[0].date_published).toBeUndefined();
+      expect(parsed.items[0].date_modified).toBeDefined();
+    });
+
+    test('JSON output includes date_published for articles with pubDate', async () => {
+      const articles: Article[] = [
+        {
+          title: 'Dated Article',
+          link: 'https://example.com/dated',
+          description: 'Has a publish date',
+          pubDate: new Date('2026-03-01T12:00:00Z'),
+          imageUrl: null,
+          guid: 'https://example.com/dated',
+        },
+      ];
+      const result = await feedGenerator.generateFeeds(MARINERS_URL, articles, 'Test');
+      const parsed = JSON.parse(result.json);
+      expect(parsed.items[0].date_published).toBe('2026-03-01T12:00:00.000Z');
+      expect(parsed.items[0].date_modified).toBeDefined();
     });
 
     test('uses description as fallback when description is empty', async () => {

@@ -106,6 +106,57 @@ describe('article-store', () => {
     expect(articleStore.getDescription('https://example.com/rt-persist')).toBe('Desc');
   });
 
+  test('getPubDate returns null when no pubDate was stored', () => {
+    articleStore.setDescription('https://example.com/no-date', 'No date here');
+    expect(articleStore.getPubDate('https://example.com/no-date')).toBeNull();
+  });
+
+  test('getPubDate returns null for unknown URLs', () => {
+    expect(articleStore.getPubDate('https://example.com/unknown-url')).toBeNull();
+  });
+
+  test('stores and retrieves pubDate via setArticleData', () => {
+    const date = new Date('2026-02-15T10:00:00Z');
+    articleStore.setArticleData('https://example.com/dated', {
+      description: 'Has a date',
+      pubDate: date,
+    });
+    const stored = articleStore.getPubDate('https://example.com/dated');
+    expect(stored).not.toBeNull();
+    expect(stored!.getTime()).toBe(date.getTime());
+  });
+
+  test('pubDate persists to disk and reloads', () => {
+    const date = new Date('2026-03-01T12:00:00Z');
+    articleStore.setArticleData('https://example.com/date-persist', {
+      description: 'Persisted date',
+      pubDate: date,
+    });
+    articleStore.save();
+
+    articleStore.reset();
+
+    const stored = articleStore.getPubDate('https://example.com/date-persist');
+    expect(stored).not.toBeNull();
+    expect(stored!.getTime()).toBe(date.getTime());
+  });
+
+  test('setArticleData preserves existing pubDate when new pubDate is null', () => {
+    const date = new Date('2026-01-10T08:00:00Z');
+    articleStore.setArticleData('https://example.com/preserve', {
+      description: 'First write',
+      pubDate: date,
+    });
+    // Second write with null pubDate should keep the original
+    articleStore.setArticleData('https://example.com/preserve', {
+      description: 'Updated description',
+      pubDate: null,
+    });
+    const stored = articleStore.getPubDate('https://example.com/preserve');
+    expect(stored).not.toBeNull();
+    expect(stored!.getTime()).toBe(date.getTime());
+  });
+
   test('setDescription records fetchedAt timestamp', () => {
     articleStore.setDescription('https://example.com/timestamp', 'test');
     articleStore.save();
