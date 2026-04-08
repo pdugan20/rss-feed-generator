@@ -8,14 +8,12 @@ A secure, whitelisted feed generator with pluggable per-site extractors and auto
 
 ## Features
 
-- **Multi-format output** - RSS 2.0, Atom 1.0, and JSON Feed 1.0 from a single source
-- **Whitelisted feeds only** - Restricted to pre-configured URLs
-- **Per-site extractors** - Dedicated scraping logic per website for accurate extraction
-- **API-based fetchers** - Direct API integration for sources that can't be scraped (e.g., SPAs)
-- **Article enrichment** - Optional per-article scraping for descriptions from individual pages
-- **Media RSS support** - `<media:content>` with image dimensions for photo feeds
-- **3-tier caching** - In-memory + disk + on-demand; per-feed TTL, ETag/304 support
-- **Health monitoring** - `/status` endpoint reports per-feed cache health
+- Multi-format output (RSS 2.0, Atom 1.0, JSON Feed 1.0)
+- Whitelisted, per-site extractors with optional article enrichment
+- API-based fetchers for sources that can't be scraped (e.g., SPAs)
+- Media RSS extensions for photo feeds
+- 3-tier caching with per-feed TTL and ETag/304 support
+- Health monitoring via `/status` endpoint
 
 ## Supported Feeds
 
