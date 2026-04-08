@@ -29,6 +29,11 @@ const feeds: FeedConfig[] = [
     cacheTtlMs: 2 * 60 * 60 * 1000, // 2 hours
     maxItems: 30,
   },
+  {
+    url: 'https://red.anthropic.com',
+    extractor: 'red-team',
+    label: 'anthropic-red-team',
+  },
 ];
 
 const feedUrls: string[] = feeds.map((f) => f.url);
