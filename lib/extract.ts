@@ -4,6 +4,7 @@ import type { Extractor } from './types';
 const extractors: Record<string, Extractor> = {
   'seattle-times': require('./extractors/seattle-times'),
   anthropic: require('./extractors/anthropic'),
+  'anthropic-news': require('./extractors/anthropic-news'),
   'claude-blog': require('./extractors/claude-blog'),
   'ap-photos': require('./extractors/ap-photos'),
   'red-team': require('./extractors/red-team'),

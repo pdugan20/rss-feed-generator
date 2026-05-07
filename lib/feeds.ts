@@ -34,6 +34,11 @@ const feeds: FeedConfig[] = [
     extractor: 'red-team',
     label: 'anthropic-red-team',
   },
+  {
+    url: 'https://www.anthropic.com/news',
+    extractor: 'anthropic-news',
+    label: 'anthropic-news',
+  },
 ];
 
 const feedUrls: string[] = feeds.map((f) => f.url);
