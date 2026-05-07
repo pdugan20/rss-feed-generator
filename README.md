@@ -4,16 +4,7 @@
 [![Node.js](https://img.shields.io/badge/Node.js-%3E%3D22-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow?logo=opensourceinitiative&logoColor=white)](https://opensource.org/licenses/MIT)
 
-A secure, whitelisted feed generator with pluggable per-site extractors and automatic daily updates. Generates RSS 2.0, Atom 1.0, and JSON Feed 1.0 from websites that don't provide their own.
-
-## Features
-
-- Multi-format output (RSS 2.0, Atom 1.0, JSON Feed 1.0)
-- Whitelisted, per-site extractors with optional article enrichment
-- API-based fetchers for sources that can't be scraped (e.g., SPAs)
-- Media RSS extensions for photo feeds
-- 3-tier caching with per-feed TTL and ETag/304 support
-- Health monitoring via `/status` endpoint
+A secure, whitelisted feed generator with pluggable per-site extractors and automatic daily updates. Outputs RSS 2.0, Atom 1.0, and JSON Feed 1.0 — including Media RSS extensions for photo feeds — with 3-tier caching and ETag/304 support for efficient polling.
 
 ## Supported Feeds
 
