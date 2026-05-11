@@ -48,6 +48,7 @@ const SAMPLE_HTML = `
     <a href="/news">All News</a>
     <a href="/">Home</a>
   </nav>
+  <script>self.__next_f.push([1,"6:[\\"$\\",\\"$L13\\",null,{\\"posts\\":[{\\"_type\\":\\"post\\",\\"illustration\\":{\\"backgroundColor\\":\\"fig\\",\\"illustration\\":{\\"_type\\":\\"illustration\\",\\"image\\":{\\"_type\\":\\"image\\",\\"url\\":\\"https://cdn.sanity.io/images/4zrzovbb/website/5f455d24ea80569b34eb4347f06152d8a5508722-1000x1000.svg\\",\\"width\\":1000,\\"height\\":1000},\\"type\\":\\"hero\\"}},\\"slug\\":{\\"_type\\":\\"slug\\",\\"current\\":\\"higher-limits-spacex\\"},\\"title\\":\\"Higher usage limits for Claude and a compute deal with SpaceX\\"}]}]\\n"])</script>
 </body></html>
 `;
 
@@ -127,10 +128,27 @@ describe('anthropic-news extractor', () => {
     expect(articles[1].imageUrl).toBeNull();
   });
 
-  test('list item without image has null imageUrl', () => {
+  test('list item image is resolved from RSC SSR payload by slug', () => {
     const $ = cheerio.load(SAMPLE_HTML);
     const articles = extract($, BASE_URL);
-    expect(articles[2].imageUrl).toBeNull();
+    expect(articles[2].imageUrl).toBe(
+      'https://cdn.sanity.io/images/4zrzovbb/website/5f455d24ea80569b34eb4347f06152d8a5508722-1000x1000.svg'
+    );
+  });
+
+  test('list item has null imageUrl when SSR payload is missing the slug', () => {
+    const htmlNoSsr = `
+      <html><body>
+        <ul><li>
+          <a href="/news/no-ssr-article" class="PublicationList-module-scss-module__KxYrHG__listItem">
+            <span class="PublicationList-module-scss-module__KxYrHG__title body-3">Article With No SSR Image Data</span>
+          </a>
+        </li></ul>
+      </body></html>
+    `;
+    const $ = cheerio.load(htmlNoSsr);
+    const articles = extract($, BASE_URL);
+    expect(articles[0].imageUrl).toBeNull();
   });
 
   test('skips footer policy link', () => {
