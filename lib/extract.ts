@@ -7,6 +7,7 @@ const extractors: Record<string, Extractor> = {
   'anthropic-news': require('./extractors/anthropic-news'),
   'claude-blog': require('./extractors/claude-blog'),
   'ap-photos': require('./extractors/ap-photos'),
+  'hackernews-top': require('./extractors/hackernews-top'),
   'red-team': require('./extractors/red-team'),
   generic: require('./extractors/generic'),
 };

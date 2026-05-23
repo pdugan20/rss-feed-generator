@@ -17,8 +17,9 @@ A secure, whitelisted feed generator with pluggable per-site extractors and auto
 | AP Mariners Photos    | [newsroom.ap.org](https://newsroom.ap.org/editorial-photos-videos/search?query=Lindsey+Wasson&mediaType=photo&st=keyword) | [Subscribe](https://rss-feed-generator-production.up.railway.app/feed?url=https%3A%2F%2Fnewsroom.ap.org%2Feditorial-photos-videos%2Fsearch%3Fquery%3DLindsey%2BWasson%26mediaType%3Dphoto%26st%3Dkeyword) | Sports   | API    |
 | Anthropic Red Team    | [red.anthropic.com](https://red.anthropic.com)                                                                            | [Subscribe](https://rss-feed-generator-production.up.railway.app/feed?url=https%3A%2F%2Fred.anthropic.com)                                                                                                | Tech     | Scrape |
 | Anthropic News        | [anthropic.com/news](https://www.anthropic.com/news)                                                                      | [Subscribe](https://rss-feed-generator-production.up.railway.app/feed?url=https%3A%2F%2Fwww.anthropic.com%2Fnews)                                                                                         | Tech     | Scrape |
+| Hacker News Top       | [news.ycombinator.com/front](https://news.ycombinator.com/front)                                                          | [Subscribe](https://rss-feed-generator-production.up.railway.app/feed?url=https%3A%2F%2Fnews.ycombinator.com%2Ffront)                                                                                     | Tech     | API    |
 
-All feeds support `?format=atom` and `?format=json` in addition to the default RSS 2.0. The AP Mariners Photos feed includes Media RSS extensions with image dimensions.
+All feeds support `?format=atom` and `?format=json` in addition to the default RSS 2.0. The AP Mariners Photos feed includes Media RSS extensions with image dimensions. The Hacker News Top feed returns the top 10 stories by points from the previous UTC day, sourced from the Algolia HN Search API.
 
 ## Quick Start
 

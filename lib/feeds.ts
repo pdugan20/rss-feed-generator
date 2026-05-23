@@ -39,6 +39,14 @@ const feeds: FeedConfig[] = [
     extractor: 'anthropic-news',
     label: 'anthropic-news',
   },
+  {
+    url: 'https://news.ycombinator.com/front',
+    extractor: 'hackernews-top',
+    label: 'hackernews-top',
+    type: 'api',
+    cacheTtlMs: 6 * 60 * 60 * 1000, // 6 hours
+    maxItems: 10,
+  },
 ];
 
 const feedUrls: string[] = feeds.map((f) => f.url);
