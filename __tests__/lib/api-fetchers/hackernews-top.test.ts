@@ -63,29 +63,41 @@ describe('hackernews-top API fetcher', () => {
     expect(calledUrl).toContain('created_at_i%3C1779494400');
   });
 
-  test('maps fields correctly for a story with URL', async () => {
+  test('emits article + discussion items for a story with external URL', async () => {
     global.fetch = mockFetchResponse([STORY_HIT]);
     const articles = await fetcher.fetch();
-    const article = articles[0];
+    expect(articles).toHaveLength(2);
 
-    expect(article.title).toBe('A great story');
-    expect(article.link).toBe('https://example.com/great-story');
-    expect(article.description).toContain('500 points');
-    expect(article.description).toContain('120 comments');
-    expect(article.description).toContain('by dang');
-    expect(article.description).toContain('news.ycombinator.com/item?id=12345');
-    expect(article.pubDate).toEqual(new Date('2026-05-22T12:00:00.000Z'));
-    expect(article.guid).toBe('hn-12345');
-    expect(article.imageUrl).toBeNull();
+    const [articleItem, discussionItem] = articles;
+
+    // Article item
+    expect(articleItem.title).toBe('A great story');
+    expect(articleItem.link).toBe('https://example.com/great-story');
+    expect(articleItem.guid).toBe('hn-12345');
+    expect(articleItem.pubDate).toEqual(new Date('2026-05-22T12:00:00.000Z'));
+    expect(articleItem.description).toContain('500 points');
+    expect(articleItem.description).toContain('120 comments');
+    expect(articleItem.description).toContain('by dang');
+    expect(articleItem.imageUrl).toBeNull();
+
+    // Discussion item
+    expect(discussionItem.title).toBe('HN: A great story (120 comments)');
+    expect(discussionItem.link).toBe('https://news.ycombinator.com/item?id=12345');
+    expect(discussionItem.guid).toBe('hn-12345-discuss');
+    expect(discussionItem.pubDate).toEqual(new Date('2026-05-22T12:00:00.000Z'));
+    expect(discussionItem.imageUrl).toBeNull();
   });
 
-  test('falls back to HN discussion URL when story has no external URL', async () => {
+  test('emits only one discussion item for Ask HN (no external URL)', async () => {
     global.fetch = mockFetchResponse([ASK_HN_HIT]);
     const articles = await fetcher.fetch();
+    expect(articles).toHaveLength(1);
+    expect(articles[0].title).toBe('HN: Ask HN: What are you working on? (250 comments)');
     expect(articles[0].link).toBe('https://news.ycombinator.com/item?id=67890');
+    expect(articles[0].guid).toBe('hn-67890-discuss');
   });
 
-  test('sorts by points descending', async () => {
+  test('sorts by points descending (paired items per story)', async () => {
     const hits = [
       { ...STORY_HIT, objectID: 'a', title: 'Low', points: 50 },
       { ...STORY_HIT, objectID: 'b', title: 'High', points: 900 },
@@ -93,10 +105,17 @@ describe('hackernews-top API fetcher', () => {
     ];
     global.fetch = mockFetchResponse(hits);
     const articles = await fetcher.fetch();
-    expect(articles.map((a) => a.title)).toEqual(['High', 'Mid', 'Low']);
+    expect(articles.map((a) => a.title)).toEqual([
+      'High',
+      'HN: High (120 comments)',
+      'Mid',
+      'HN: Mid (120 comments)',
+      'Low',
+      'HN: Low (120 comments)',
+    ]);
   });
 
-  test('caps at 10 articles', async () => {
+  test('caps story count at top 10 (yields up to 20 items)', async () => {
     const hits = Array.from({ length: 25 }, (_, i) => ({
       ...STORY_HIT,
       objectID: `id-${i}`,
@@ -104,15 +123,16 @@ describe('hackernews-top API fetcher', () => {
     }));
     global.fetch = mockFetchResponse(hits);
     const articles = await fetcher.fetch();
-    expect(articles).toHaveLength(10);
+    expect(articles).toHaveLength(20); // 10 stories x 2 items
   });
 
   test('skips hits without a title', async () => {
     const hits = [{ ...STORY_HIT, objectID: 'no-title', title: undefined }, STORY_HIT];
     global.fetch = mockFetchResponse(hits);
     const articles = await fetcher.fetch();
-    expect(articles).toHaveLength(1);
+    expect(articles).toHaveLength(2);
     expect(articles[0].guid).toBe('hn-12345');
+    expect(articles[1].guid).toBe('hn-12345-discuss');
   });
 
   test('handles missing points / num_comments gracefully', async () => {
@@ -121,6 +141,7 @@ describe('hackernews-top API fetcher', () => {
     const articles = await fetcher.fetch();
     expect(articles[0].description).toContain('0 points');
     expect(articles[0].description).toContain('0 comments');
+    expect(articles[1].title).toBe('HN: A great story (0 comments)');
   });
 
   test('returns empty array on API error', async () => {

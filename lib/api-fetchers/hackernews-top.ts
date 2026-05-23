@@ -67,19 +67,38 @@ async function fetchTopStories(now: Date = new Date()): Promise<Article[]> {
     .sort((a, b) => (b.points ?? 0) - (a.points ?? 0))
     .slice(0, TOP_N);
 
-  return ranked.map((hit) => {
-    const link = hit.url ?? hnDiscussionUrl(hit.objectID);
+  const articles: Article[] = [];
+  for (const hit of ranked) {
+    const title = hit.title as string;
     const pubDate = hit.created_at ? new Date(hit.created_at) : null;
+    const description = buildDescription(hit);
+    const discussionUrl = hnDiscussionUrl(hit.objectID);
+    const comments = hit.num_comments ?? 0;
 
-    return {
-      title: hit.title as string,
-      link,
-      description: buildDescription(hit),
+    // Article item: only when there's an external URL (Ask HN / Show HN text
+    // posts have no separate article — discussion IS the content).
+    if (hit.url) {
+      articles.push({
+        title,
+        link: hit.url,
+        description,
+        pubDate,
+        imageUrl: null,
+        guid: `hn-${hit.objectID}`,
+      });
+    }
+
+    // Discussion item: always emit so HN comments are accessible in Readwise.
+    articles.push({
+      title: `HN: ${title} (${comments} comments)`,
+      link: discussionUrl,
+      description,
       pubDate,
       imageUrl: null,
-      guid: `hn-${hit.objectID}`,
-    };
-  });
+      guid: `hn-${hit.objectID}-discuss`,
+    });
+  }
+  return articles;
 }
 
 const hackernewsTopFetcher: ApiFetcher = {

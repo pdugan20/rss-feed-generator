@@ -45,7 +45,7 @@ const feeds: FeedConfig[] = [
     label: 'hackernews-top',
     type: 'api',
     cacheTtlMs: 6 * 60 * 60 * 1000, // 6 hours
-    maxItems: 10,
+    maxItems: 20, // top 10 stories x 2 items (article + HN discussion)
   },
 ];
 
