@@ -3,7 +3,7 @@ import type { Article, ApiFetcher } from '../types';
 const ALGOLIA_SEARCH_URL = 'https://hn.algolia.com/api/v1/search';
 const HN_ITEM_URL = 'https://news.ycombinator.com/item';
 const HITS_PER_PAGE = 100;
-const TOP_N = 10;
+const TOP_N = 5;
 
 interface AlgoliaHit {
   objectID: string;
@@ -33,15 +33,13 @@ function hnDiscussionUrl(objectID: string): string {
   return `${HN_ITEM_URL}?id=${objectID}`;
 }
 
-function buildDescription(hit: AlgoliaHit): string {
+function buildDescription(hit: AlgoliaHit, includeDiscussionUrl: boolean): string {
   const points = hit.points ?? 0;
   const comments = hit.num_comments ?? 0;
   const author = hit.author ?? 'unknown';
-  const discussionUrl = hnDiscussionUrl(hit.objectID);
-  return (
-    `${points} points, ${comments} comments by ${author}. ` +
-    `<a href="${discussionUrl}">HN discussion</a>`
-  );
+  const stats = `${points} points, ${comments} comments by ${author}.`;
+  if (!includeDiscussionUrl) return stats;
+  return `${stats} Discussion: ${hnDiscussionUrl(hit.objectID)}`;
 }
 
 async function fetchTopStories(now: Date = new Date()): Promise<Article[]> {
@@ -71,31 +69,20 @@ async function fetchTopStories(now: Date = new Date()): Promise<Article[]> {
   for (const hit of ranked) {
     const title = hit.title as string;
     const pubDate = hit.created_at ? new Date(hit.created_at) : null;
-    const description = buildDescription(hit);
     const discussionUrl = hnDiscussionUrl(hit.objectID);
-    const comments = hit.num_comments ?? 0;
 
-    // Article item: only when there's an external URL (Ask HN / Show HN text
-    // posts have no separate article — discussion IS the content).
-    if (hit.url) {
-      articles.push({
-        title,
-        link: hit.url,
-        description,
-        pubDate,
-        imageUrl: null,
-        guid: `hn-${hit.objectID}`,
-      });
-    }
-
-    // Discussion item: always emit so HN comments are accessible in Readwise.
+    // For Ask HN / Show HN posts, the HN thread IS the article — link directly
+    // to it and skip the redundant "Discussion: <url>" line. For external
+    // stories, link to the article and surface the HN URL as plain text so
+    // readers like Readwise auto-linkify it without stripping the anchor.
+    const hasExternalUrl = Boolean(hit.url);
     articles.push({
-      title: `HN: ${title} (${comments} comments)`,
-      link: discussionUrl,
-      description,
+      title,
+      link: hasExternalUrl ? (hit.url as string) : discussionUrl,
+      description: buildDescription(hit, hasExternalUrl),
       pubDate,
       imageUrl: null,
-      guid: `hn-${hit.objectID}-discuss`,
+      guid: `hn-${hit.objectID}`,
     });
   }
   return articles;
