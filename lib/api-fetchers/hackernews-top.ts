@@ -33,13 +33,25 @@ function hnDiscussionUrl(objectID: string): string {
   return `${HN_ITEM_URL}?id=${objectID}`;
 }
 
-function buildDescription(hit: AlgoliaHit, includeDiscussionUrl: boolean): string {
+// Escape a URL for safe inclusion in an HTML attribute. The `feed` library
+// emits descriptions inside CDATA, so it does NOT entity-encode the contents —
+// an unescaped `&` in a query string would break the anchor tag.
+function escapeForAttribute(url: string): string {
+  return url.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+}
+
+function buildDescription(hit: AlgoliaHit, articleUrl: string | null): string {
   const points = hit.points ?? 0;
   const comments = hit.num_comments ?? 0;
   const author = hit.author ?? 'unknown';
   const stats = `${points} points, ${comments} comments by ${author}.`;
-  if (!includeDiscussionUrl) return stats;
-  return `${stats} Discussion: ${hnDiscussionUrl(hit.objectID)}`;
+  // For Ask/Show HN posts the item link already IS the discussion thread, so
+  // there's no separate article to surface. For external stories, embed a real
+  // clickable anchor to the article: the item link points at the HN thread (so
+  // readers like Readwise Reader land on the comments), and this anchor is how
+  // the reader still reaches the underlying article.
+  if (!articleUrl) return stats;
+  return `${stats} <a href="${escapeForAttribute(articleUrl)}">Read the article</a>`;
 }
 
 async function fetchTopStories(now: Date = new Date()): Promise<Article[]> {
@@ -71,15 +83,16 @@ async function fetchTopStories(now: Date = new Date()): Promise<Article[]> {
     const pubDate = hit.created_at ? new Date(hit.created_at) : null;
     const discussionUrl = hnDiscussionUrl(hit.objectID);
 
-    // For Ask HN / Show HN posts, the HN thread IS the article — link directly
-    // to it and skip the redundant "Discussion: <url>" line. For external
-    // stories, link to the article and surface the HN URL as plain text so
-    // readers like Readwise auto-linkify it without stripping the anchor.
-    const hasExternalUrl = Boolean(hit.url);
+    // The item link always points at the HN discussion thread so feed readers
+    // (e.g. Readwise Reader) parse/open the comments page, which carries the
+    // article link at the top. For external stories we also embed a clickable
+    // anchor to the underlying article in the description. For Ask/Show HN posts
+    // the thread IS the content, so there's no separate article to surface.
+    const articleUrl = hit.url ?? null;
     articles.push({
       title,
-      link: hasExternalUrl ? (hit.url as string) : discussionUrl,
-      description: buildDescription(hit, hasExternalUrl),
+      link: discussionUrl,
+      description: buildDescription(hit, articleUrl),
       pubDate,
       imageUrl: null,
       guid: `hn-${hit.objectID}`,

@@ -63,22 +63,29 @@ describe('hackernews-top API fetcher', () => {
     expect(calledUrl).toContain('created_at_i%3C1779494400');
   });
 
-  test('emits one item per story with external URL, embedding HN URL as plain text', async () => {
+  test('links to the HN discussion and embeds a clickable article anchor', async () => {
     global.fetch = mockFetchResponse([STORY_HIT]);
     const articles = await fetcher.fetch();
     expect(articles).toHaveLength(1);
 
     const [item] = articles;
     expect(item.title).toBe('A great story');
-    expect(item.link).toBe('https://example.com/great-story');
+    // Item link points at the HN thread so readers open the comments page.
+    expect(item.link).toBe('https://news.ycombinator.com/item?id=12345');
     expect(item.guid).toBe('hn-12345');
     expect(item.pubDate).toEqual(new Date('2026-05-22T12:00:00.000Z'));
     expect(item.description).toContain('500 points');
     expect(item.description).toContain('120 comments');
     expect(item.description).toContain('by dang');
-    expect(item.description).toContain('Discussion: https://news.ycombinator.com/item?id=12345');
-    expect(item.description).not.toContain('<a');
+    // Article reachable via a real anchor embedded in the description.
+    expect(item.description).toContain('<a href="https://example.com/great-story">');
     expect(item.imageUrl).toBeNull();
+  });
+
+  test('escapes ampersands in the article URL within the anchor', async () => {
+    global.fetch = mockFetchResponse([{ ...STORY_HIT, url: 'https://example.com/a?x=1&y=2' }]);
+    const articles = await fetcher.fetch();
+    expect(articles[0].description).toContain('href="https://example.com/a?x=1&amp;y=2"');
   });
 
   test('emits one item for Ask HN linking directly to the discussion', async () => {
@@ -88,8 +95,8 @@ describe('hackernews-top API fetcher', () => {
     expect(articles[0].title).toBe('Ask HN: What are you working on?');
     expect(articles[0].link).toBe('https://news.ycombinator.com/item?id=67890');
     expect(articles[0].guid).toBe('hn-67890');
-    // No "Discussion: <url>" line since the item link already IS the discussion.
-    expect(articles[0].description).not.toContain('Discussion:');
+    // No article anchor since the item link already IS the discussion thread.
+    expect(articles[0].description).not.toContain('<a');
   });
 
   test('sorts by points descending', async () => {
