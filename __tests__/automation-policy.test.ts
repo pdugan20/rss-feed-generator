@@ -158,6 +158,36 @@ describe('repository automation policy', () => {
     );
   });
 
+  it('isolates Prettier updates from the general development dependency group', () => {
+    const config = parse(read(dependabotConfig)) as {
+      updates?: Array<{
+        'package-ecosystem'?: string;
+        groups?: Record<
+          string,
+          {
+            'dependency-type'?: string;
+            patterns?: string[];
+            'exclude-patterns'?: string[];
+            'update-types'?: string[];
+          }
+        >;
+      }>;
+    };
+    const npmGroups = config.updates?.find(
+      (update) => update['package-ecosystem'] === 'npm'
+    )?.groups;
+
+    expect(npmGroups?.prettier).toEqual({
+      'dependency-type': 'development',
+      patterns: ['prettier'],
+      'update-types': ['minor', 'patch'],
+    });
+    expect(npmGroups?.['dev-dependencies']?.['exclude-patterns']).toEqual(['prettier']);
+    expect(Object.keys(npmGroups ?? {}).indexOf('prettier')).toBeLessThan(
+      Object.keys(npmGroups ?? {}).indexOf('dev-dependencies')
+    );
+  });
+
   it.each(['2.8.2', '2.9.0', '3.0.0-rc.1', '2.9.0+policy.1'])(
     'accepts exact policy-tool version %s',
     (version) => {
@@ -191,5 +221,6 @@ describe('repository automation policy', () => {
 
     expect(manifest.devDependencies?.['claude-code-lint']).toBe('0.7.0');
     expect(() => validateExactSemver(manifest.devDependencies?.yaml)).not.toThrow();
+    expect(() => validateExactSemver(manifest.devDependencies?.prettier)).not.toThrow();
   });
 });
