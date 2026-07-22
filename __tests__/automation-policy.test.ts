@@ -66,6 +66,15 @@ function validateWorkflowAutomationPolicy(contents: string): void {
   validateWorkflowValue(workflow);
 }
 
+const exactSemverPattern =
+  /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-(?:(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*))*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
+
+function validateExactSemver(version: unknown): void {
+  if (typeof version !== 'string' || !exactSemverPattern.test(version)) {
+    throw new Error(`Policy tooling must use an exact semantic version: ${String(version)}`);
+  }
+}
+
 describe('repository automation policy', () => {
   it.each([
     [
@@ -149,12 +158,38 @@ describe('repository automation policy', () => {
     );
   });
 
+  it.each(['2.8.2', '2.9.0', '3.0.0-rc.1', '2.9.0+policy.1'])(
+    'accepts exact policy-tool version %s',
+    (version) => {
+      expect(() => validateExactSemver(version)).not.toThrow();
+    }
+  );
+
+  it.each([
+    '^2.8.2',
+    '~2.8.2',
+    'latest',
+    'next',
+    'v2.8.2',
+    '2.8',
+    '2.8.x',
+    '01.2.3',
+    '2.08.3',
+    '2.8.03',
+    '2.8.2-01',
+    '',
+  ])('rejects non-exact or malformed policy-tool version %s', (version) => {
+    expect(() => validateExactSemver(version)).toThrow(
+      'Policy tooling must use an exact semantic version'
+    );
+  });
+
   it('uses exact direct dependencies for repository policy tooling', () => {
     const manifest = JSON.parse(read(packageManifest)) as {
       devDependencies?: Record<string, string>;
     };
 
     expect(manifest.devDependencies?.['claude-code-lint']).toBe('0.7.0');
-    expect(manifest.devDependencies?.yaml).toBe('2.8.2');
+    expect(() => validateExactSemver(manifest.devDependencies?.yaml)).not.toThrow();
   });
 });
