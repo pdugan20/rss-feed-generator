@@ -1,6 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { parse } from 'yaml';
 
 const root = join(__dirname, '..');
 const workflowsDirectory = join(root, '.github', 'workflows');
@@ -22,37 +23,80 @@ function trackedWorkflowFiles(): string[] {
     .trim()
     .split('\n')
     .filter(Boolean)
+    .filter((path) => /\.ya?ml$/.test(path))
     .map((path) => join(root, path))
     .filter(existsSync);
 }
 
-function externalGitHubActionReferences(contents: string): string[] {
-  return Array.from(
-    contents.matchAll(/^\s*(?:-\s*)?uses:\s*(?:"([^"]+)"|'([^']+)'|([^\s#]+))(?:\s+#.*)?$/gm),
-    ([, doubleQuoted, singleQuoted, bare]) => doubleQuoted ?? singleQuoted ?? bare
-  ).filter((reference) => !reference.startsWith('./') && !reference.startsWith('docker://'));
-}
+function validateActionReference(reference: string): void {
+  if (reference.startsWith('./') || reference.startsWith('docker://')) return;
 
-function expectExternalGitHubActionsPinned(contents: string): void {
-  for (const reference of externalGitHubActionReferences(contents)) {
-    const separator = reference.lastIndexOf('@');
+  const separator = reference.lastIndexOf('@');
+  const revision = reference.slice(separator + 1);
 
-    expect(separator).toBeGreaterThan(0);
-    expect(reference.slice(separator + 1)).toMatch(/^[0-9a-f]{40}$/);
+  if (separator <= 0 || !/^[0-9a-f]{40}$/.test(revision)) {
+    throw new Error(`External action must use a full commit SHA: ${reference}`);
   }
 }
 
+function validateWorkflowValue(value: unknown): void {
+  if (Array.isArray(value)) {
+    for (const item of value) validateWorkflowValue(item);
+    return;
+  }
+
+  if (typeof value !== 'object' || value === null) return;
+
+  for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+    if (key === 'uses') {
+      if (typeof child !== 'string') throw new Error('Workflow uses values must be strings');
+      validateActionReference(child);
+    }
+
+    if ((key === 'contents' || key === 'pull-requests') && child === 'write') {
+      throw new Error(`Workflow permission ${key} must not be write`);
+    }
+
+    validateWorkflowValue(child);
+  }
+}
+
+function validateWorkflowAutomationPolicy(contents: string): void {
+  const workflow = parse(contents) as unknown;
+  validateWorkflowValue(workflow);
+}
+
 describe('repository automation policy', () => {
+  it.each([
+    [
+      'flow-style unpinned actions',
+      'jobs:\n  build:\n    steps:\n      - { uses: example/action@v1 }',
+    ],
+    ['spaced uses keys', 'jobs:\n  build:\n    steps:\n      - uses : example/action@v1'],
+    ['flow-style write permissions', 'jobs:\n  build:\n    permissions: { contents: write }'],
+  ])('rejects %s', (_description, contents) => {
+    expect(() => validateWorkflowAutomationPolicy(contents)).toThrow();
+  });
+
+  it('fails closed when workflow YAML is invalid', () => {
+    const contents = 'jobs:\n  build: [';
+
+    expect(() => validateWorkflowAutomationPolicy(contents)).toThrow();
+  });
+
   it('rejects unpinned list-step actions and accepts SHA-pinned equivalents', () => {
     const sha = '0123456789abcdef0123456789abcdef01234567';
 
-    expect(() => expectExternalGitHubActionsPinned('- uses: example/action@v1')).toThrow();
-    expect(() => expectExternalGitHubActionsPinned(`- uses: example/action@${sha}`)).not.toThrow();
+    expect(() => validateWorkflowAutomationPolicy('- uses: example/action@v1')).toThrow();
+    expect(() => validateWorkflowAutomationPolicy(`- uses: example/action@${sha}`)).not.toThrow();
   });
 
-  it('does not require SHAs for local actions', () => {
-    expect(() => expectExternalGitHubActionsPinned('- uses: ./path/to/action')).not.toThrow();
-  });
+  it.each(['./path/to/action', 'docker://alpine:3.22'])(
+    'allows non-GitHub action reference %s',
+    (reference) => {
+      expect(() => validateWorkflowAutomationPolicy(`- uses: ${reference}`)).not.toThrow();
+    }
+  );
 
   it('removes the legacy Dependabot auto-merge workflow', () => {
     expect(existsSync(autoMergeWorkflow)).toBe(false);
@@ -63,10 +107,9 @@ describe('repository automation policy', () => {
       const contents = read(workflow);
 
       expect(contents).not.toMatch(/gh\s+pr\s+merge\s+--auto/);
-      expect(contents).not.toMatch(/^\s*(?:pull-requests|contents):\s*write\s*$/m);
       expect(contents).not.toMatch(/@latest\b/);
 
-      expectExternalGitHubActionsPinned(contents);
+      validateWorkflowAutomationPolicy(contents);
     }
   });
 
@@ -106,11 +149,12 @@ describe('repository automation policy', () => {
     );
   });
 
-  it('uses the exact local Claude Code lint dependency', () => {
+  it('uses exact direct dependencies for repository policy tooling', () => {
     const manifest = JSON.parse(read(packageManifest)) as {
       devDependencies?: Record<string, string>;
     };
 
     expect(manifest.devDependencies?.['claude-code-lint']).toBe('0.7.0');
+    expect(manifest.devDependencies?.yaml).toBe('2.8.2');
   });
 });
