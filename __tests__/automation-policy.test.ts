@@ -26,7 +26,34 @@ function trackedWorkflowFiles(): string[] {
     .filter(existsSync);
 }
 
+function externalGitHubActionReferences(contents: string): string[] {
+  return Array.from(
+    contents.matchAll(/^\s*(?:-\s*)?uses:\s*(?:"([^"]+)"|'([^']+)'|([^\s#]+))(?:\s+#.*)?$/gm),
+    ([, doubleQuoted, singleQuoted, bare]) => doubleQuoted ?? singleQuoted ?? bare
+  ).filter((reference) => !reference.startsWith('./') && !reference.startsWith('docker://'));
+}
+
+function expectExternalGitHubActionsPinned(contents: string): void {
+  for (const reference of externalGitHubActionReferences(contents)) {
+    const separator = reference.lastIndexOf('@');
+
+    expect(separator).toBeGreaterThan(0);
+    expect(reference.slice(separator + 1)).toMatch(/^[0-9a-f]{40}$/);
+  }
+}
+
 describe('repository automation policy', () => {
+  it('rejects unpinned list-step actions and accepts SHA-pinned equivalents', () => {
+    const sha = '0123456789abcdef0123456789abcdef01234567';
+
+    expect(() => expectExternalGitHubActionsPinned('- uses: example/action@v1')).toThrow();
+    expect(() => expectExternalGitHubActionsPinned(`- uses: example/action@${sha}`)).not.toThrow();
+  });
+
+  it('does not require SHAs for local actions', () => {
+    expect(() => expectExternalGitHubActionsPinned('- uses: ./path/to/action')).not.toThrow();
+  });
+
   it('removes the legacy Dependabot auto-merge workflow', () => {
     expect(existsSync(autoMergeWorkflow)).toBe(false);
   });
@@ -39,11 +66,7 @@ describe('repository automation policy', () => {
       expect(contents).not.toMatch(/^\s*(?:pull-requests|contents):\s*write\s*$/m);
       expect(contents).not.toMatch(/@latest\b/);
 
-      for (const actionReference of contents.matchAll(
-        /^\s*uses:\s*[^\s@]+@([^\s#]+)(?:\s+#.*)?$/gm
-      )) {
-        expect(actionReference[1]).toMatch(/^[0-9a-f]{40}$/);
-      }
+      expectExternalGitHubActionsPinned(contents);
     }
   });
 
