@@ -26,8 +26,15 @@ updates:
       - dependency-name: '*'
         update-types: ['version-update:semver-major']
     groups:
+      prettier:
+        dependency-type: 'development'
+        patterns: ['prettier']
+        update-types:
+          - 'minor'
+          - 'patch'
       dev-dependencies:
         dependency-type: 'development'
+        exclude-patterns: ['prettier']
         update-types:
           - 'minor'
           - 'patch'
