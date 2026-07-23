@@ -1,0 +1,474 @@
+name: Dependabot Auto-merge Pilot
+
+on:
+  pull_request_target:
+    types: [opened, reopened, synchronize, ready_for_review]
+
+permissions:
+  actions: read
+  checks: read
+  contents: write
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: rss-dependabot-automerge-pilot
+  cancel-in-progress: false
+
+jobs:
+  admit:
+    if: >-
+      github.event.pull_request.user.login == 'dependabot[bot]' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.base.ref == 'main' &&
+      github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PR_URL: ${{ github.event.pull_request.html_url }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+
+    steps:
+      - name: Check out trusted base policy
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          persist-credentials: false
+
+      - name: Fetch verified Dependabot metadata
+        id: dependabot-metadata
+        uses: dependabot/fetch-metadata@25dd0e34f4fe68f24cc83900b1fe3fe149efef98 # v3.1.0
+        with:
+          github-token: ${{ github.token }}
+
+      - name: Query live data and run preflight
+        id: preflight
+        env:
+          UPDATE_TYPE: ${{ steps.dependabot-metadata.outputs.update-type }}
+          PACKAGE_ECOSYSTEM: ${{ steps.dependabot-metadata.outputs.package-ecosystem }}
+          DEPENDENCY_DIRECTORY: ${{ steps.dependabot-metadata.outputs.directory }}
+          MAINTAINER_CHANGES: ${{ steps.dependabot-metadata.outputs.maintainer-changes }}
+          UPDATED_DEPENDENCIES_JSON: ${{ steps.dependabot-metadata.outputs.updated-dependencies-json }}
+        run: |
+          set -euo pipefail
+
+          gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" \
+            > "$RUNNER_TEMP/preflight-pull.json"
+          gh pr view "$PR_URL" \
+            --repo "$GITHUB_REPOSITORY" \
+            --json mergeable,mergeStateStatus,statusCheckRollup \
+            > "$RUNNER_TEMP/preflight-pr.json"
+          gh api \
+            --paginate \
+            --slurp \
+            "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/files?per_page=100" \
+            > "$RUNNER_TEMP/preflight-file-pages.json"
+          gh api "repos/$GITHUB_REPOSITORY/rulesets/13514838" \
+            > "$RUNNER_TEMP/preflight-ruleset.json"
+          gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" \
+            > "$RUNNER_TEMP/preflight-main-ref.json"
+
+          MAIN_SHA=$(jq -r '.object.sha' "$RUNNER_TEMP/preflight-main-ref.json")
+          CURRENT_HEAD_SHA=$(jq -r '.head.sha' "$RUNNER_TEMP/preflight-pull.json")
+          gh api "repos/$GITHUB_REPOSITORY/compare/$MAIN_SHA...$CURRENT_HEAD_SHA" \
+            > "$RUNNER_TEMP/preflight-comparison.json"
+          gh issue list \
+            --repo "$GITHUB_REPOSITORY" \
+            --state open \
+            --label "rss-automerge-pilot-state" \
+            --limit 1000 \
+            --json number \
+            > "$RUNNER_TEMP/preflight-issues.json"
+          gh pr list \
+            --repo "$GITHUB_REPOSITORY" \
+            --state open \
+            --limit 1000 \
+            --json autoMergeRequest,number \
+            > "$RUNNER_TEMP/preflight-open-prs.json"
+
+          FILES_JSON=$(jq -c '[.[][] | .filename]' "$RUNNER_TEMP/preflight-file-pages.json")
+          RULESET_ID=$(jq -c '.id' "$RUNNER_TEMP/preflight-ruleset.json")
+          RULESET_ENFORCEMENT=$(jq -r '.enforcement' "$RUNNER_TEMP/preflight-ruleset.json")
+          RULESET_TARGET=$(jq -r '.target' "$RUNNER_TEMP/preflight-ruleset.json")
+          RULESET_INCLUDE=$(jq -c '.conditions.ref_name.include' "$RUNNER_TEMP/preflight-ruleset.json")
+          RULESET_EXCLUDE=$(jq -c '.conditions.ref_name.exclude' "$RUNNER_TEMP/preflight-ruleset.json")
+          RULESET_STRICT=$(jq -c \
+            '[.rules[] | select(.type == "required_status_checks")][0].parameters.strict_required_status_checks_policy' \
+            "$RUNNER_TEMP/preflight-ruleset.json")
+          REQUIRED_CHECKS_JSON=$(jq -c \
+            '[.rules[] | select(.type == "required_status_checks") | .parameters.required_status_checks[] | {context, integrationId: .integration_id}]' \
+            "$RUNNER_TEMP/preflight-ruleset.json")
+          EXPECTED_REQUIRED_CHECKS_JSON=$(jq -cn \
+            '[
+              {context: "lint-and-test (20)", integrationId: 15368},
+              {context: "lint-and-test (22)", integrationId: 15368},
+              {context: "claudelint", integrationId: 15368},
+              {context: "Validate PR Title", integrationId: 15368}
+            ]')
+          if ! jq -e -n \
+            --argjson actual "$REQUIRED_CHECKS_JSON" \
+            --argjson expected "$EXPECTED_REQUIRED_CHECKS_JSON" \
+            '($actual | sort_by(.context)) == ($expected | sort_by(.context))' \
+            > /dev/null; then
+            echo "Ruleset 13514838 does not have the exact required context/App bindings."
+          fi
+          UPDATED_DEPENDENCIES=$(jq -c \
+            '[.[] | {previousVersion: .prevVersion, newVersion: .newVersion}]' \
+            <<< "$UPDATED_DEPENDENCIES_JSON")
+          SUCCESSFUL_CHECKS=$(jq -c \
+            '[.statusCheckRollup[] | select(.conclusion == "SUCCESS" or .state == "SUCCESS") | (.context // .name)]' \
+            "$RUNNER_TEMP/preflight-pr.json")
+          OPEN_STATE_ISSUES=$(jq -c 'length' "$RUNNER_TEMP/preflight-issues.json")
+          ARMED_PULL_REQUESTS=$(jq -c \
+            --argjson prNumber "$PR_NUMBER" \
+            '[.[] | select(.number != $prNumber and .autoMergeRequest != null)] | length' \
+            "$RUNNER_TEMP/preflight-open-prs.json")
+
+          jq -n \
+            --arg actor "$(jq -r '.user.login' "$RUNNER_TEMP/preflight-pull.json")" \
+            --arg repository "$GITHUB_REPOSITORY" \
+            --arg base "$(jq -r '.base.ref' "$RUNNER_TEMP/preflight-pull.json")" \
+            --arg headRepository "$(jq -r '.head.repo.full_name // ""' "$RUNNER_TEMP/preflight-pull.json")" \
+            --argjson draft "$(jq -c '.draft' "$RUNNER_TEMP/preflight-pull.json")" \
+            --arg expectedHeadSha "$EXPECTED_HEAD_SHA" \
+            --arg currentHeadSha "$CURRENT_HEAD_SHA" \
+            --arg updateType "$UPDATE_TYPE" \
+            --arg packageEcosystem "$PACKAGE_ECOSYSTEM" \
+            --arg directory "$DEPENDENCY_DIRECTORY" \
+            --argjson maintainerChanges "$MAINTAINER_CHANGES" \
+            --argjson files "$FILES_JSON" \
+            --argjson rulesetId "$RULESET_ID" \
+            --arg rulesetEnforcement "$RULESET_ENFORCEMENT" \
+            --arg rulesetTarget "$RULESET_TARGET" \
+            --argjson rulesetInclude "$RULESET_INCLUDE" \
+            --argjson rulesetExclude "$RULESET_EXCLUDE" \
+            --argjson rulesetStrict "$RULESET_STRICT" \
+            --argjson requiredChecks "$REQUIRED_CHECKS_JSON" \
+            --argjson updatedDependencies "$UPDATED_DEPENDENCIES" \
+            --argjson behindBy "$(jq -c '.behind_by' "$RUNNER_TEMP/preflight-comparison.json")" \
+            --arg mergeable "$(jq -r '.mergeable' "$RUNNER_TEMP/preflight-pr.json")" \
+            --arg mergeStateStatus "$(jq -r '.mergeStateStatus' "$RUNNER_TEMP/preflight-pr.json")" \
+            --argjson successfulChecks "$SUCCESSFUL_CHECKS" \
+            --argjson openStateIssues "$OPEN_STATE_ISSUES" \
+            --argjson armedPullRequests "$ARMED_PULL_REQUESTS" \
+            '{
+              actor: $actor,
+              repository: $repository,
+              base: $base,
+              headRepository: $headRepository,
+              draft: $draft,
+              expectedHeadSha: $expectedHeadSha,
+              currentHeadSha: $currentHeadSha,
+              updateType: $updateType,
+              packageEcosystem: $packageEcosystem,
+              directory: $directory,
+              maintainerChanges: $maintainerChanges,
+              files: $files,
+              rulesetId: $rulesetId,
+              rulesetEnforcement: $rulesetEnforcement,
+              rulesetTarget: $rulesetTarget,
+              rulesetInclude: $rulesetInclude,
+              rulesetExclude: $rulesetExclude,
+              rulesetStrict: $rulesetStrict,
+              requiredChecks: $requiredChecks,
+              updatedDependencies: $updatedDependencies,
+              behindBy: $behindBy,
+              mergeable: $mergeable,
+              mergeStateStatus: $mergeStateStatus,
+              successfulChecks: $successfulChecks,
+              openStateIssues: $openStateIssues,
+              armedPullRequests: $armedPullRequests
+            }' > "$RUNNER_TEMP/preflight-input.json"
+
+          node scripts/dependabot-automerge-policy.cjs preflight \
+            < "$RUNNER_TEMP/preflight-input.json" \
+            > "$RUNNER_TEMP/preflight-result.json"
+          jq -r \
+            '"## Dependabot auto-merge preflight\n\nCandidate: \(.candidate)\n\n" +
+            (if (.reasons | length) == 0
+             then "No rejection reasons."
+             else (.reasons | map("- " + .) | join("\n"))
+             end)' \
+            "$RUNNER_TEMP/preflight-result.json" >> "$GITHUB_STEP_SUMMARY"
+          echo "candidate=$(jq -r '.candidate == true' "$RUNNER_TEMP/preflight-result.json")" \
+            >> "$GITHUB_OUTPUT"
+
+      - name: Wait for required checks
+        id: required-checks
+        if: steps.preflight.outputs.candidate == 'true'
+        run: gh pr checks "$PR_URL" --repo "$GITHUB_REPOSITORY" --required --watch --fail-fast
+
+      - name: Re-query live data and run admission
+        id: admission
+        if: steps.preflight.outputs.candidate == 'true'
+        env:
+          UPDATE_TYPE: ${{ steps.dependabot-metadata.outputs.update-type }}
+          PACKAGE_ECOSYSTEM: ${{ steps.dependabot-metadata.outputs.package-ecosystem }}
+          DEPENDENCY_DIRECTORY: ${{ steps.dependabot-metadata.outputs.directory }}
+          MAINTAINER_CHANGES: ${{ steps.dependabot-metadata.outputs.maintainer-changes }}
+          UPDATED_DEPENDENCIES_JSON: ${{ steps.dependabot-metadata.outputs.updated-dependencies-json }}
+        run: |
+          set -euo pipefail
+
+          gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" \
+            > "$RUNNER_TEMP/admission-pull.json"
+          gh pr view "$PR_URL" \
+            --repo "$GITHUB_REPOSITORY" \
+            --json mergeable,mergeStateStatus,statusCheckRollup \
+            > "$RUNNER_TEMP/admission-pr.json"
+          gh api \
+            --paginate \
+            --slurp \
+            "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/files?per_page=100" \
+            > "$RUNNER_TEMP/admission-file-pages.json"
+          gh api "repos/$GITHUB_REPOSITORY/rulesets/13514838" \
+            > "$RUNNER_TEMP/admission-ruleset.json"
+          gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" \
+            > "$RUNNER_TEMP/admission-main-ref.json"
+
+          MAIN_SHA=$(jq -r '.object.sha' "$RUNNER_TEMP/admission-main-ref.json")
+          CURRENT_HEAD_SHA=$(jq -r '.head.sha' "$RUNNER_TEMP/admission-pull.json")
+          gh api "repos/$GITHUB_REPOSITORY/compare/$MAIN_SHA...$CURRENT_HEAD_SHA" \
+            > "$RUNNER_TEMP/admission-comparison.json"
+          gh issue list \
+            --repo "$GITHUB_REPOSITORY" \
+            --state open \
+            --label "rss-automerge-pilot-state" \
+            --limit 1000 \
+            --json number \
+            > "$RUNNER_TEMP/admission-issues.json"
+          gh pr list \
+            --repo "$GITHUB_REPOSITORY" \
+            --state open \
+            --limit 1000 \
+            --json autoMergeRequest,number \
+            > "$RUNNER_TEMP/admission-open-prs.json"
+
+          FILES_JSON=$(jq -c '[.[][] | .filename]' "$RUNNER_TEMP/admission-file-pages.json")
+          RULESET_ID=$(jq -c '.id' "$RUNNER_TEMP/admission-ruleset.json")
+          RULESET_ENFORCEMENT=$(jq -r '.enforcement' "$RUNNER_TEMP/admission-ruleset.json")
+          RULESET_TARGET=$(jq -r '.target' "$RUNNER_TEMP/admission-ruleset.json")
+          RULESET_INCLUDE=$(jq -c '.conditions.ref_name.include' "$RUNNER_TEMP/admission-ruleset.json")
+          RULESET_EXCLUDE=$(jq -c '.conditions.ref_name.exclude' "$RUNNER_TEMP/admission-ruleset.json")
+          RULESET_STRICT=$(jq -c \
+            '[.rules[] | select(.type == "required_status_checks")][0].parameters.strict_required_status_checks_policy' \
+            "$RUNNER_TEMP/admission-ruleset.json")
+          REQUIRED_CHECKS_JSON=$(jq -c \
+            '[.rules[] | select(.type == "required_status_checks") | .parameters.required_status_checks[] | {context, integrationId: .integration_id}]' \
+            "$RUNNER_TEMP/admission-ruleset.json")
+          EXPECTED_REQUIRED_CHECKS_JSON=$(jq -cn \
+            '[
+              {context: "lint-and-test (20)", integrationId: 15368},
+              {context: "lint-and-test (22)", integrationId: 15368},
+              {context: "claudelint", integrationId: 15368},
+              {context: "Validate PR Title", integrationId: 15368}
+            ]')
+          if ! jq -e -n \
+            --argjson actual "$REQUIRED_CHECKS_JSON" \
+            --argjson expected "$EXPECTED_REQUIRED_CHECKS_JSON" \
+            '($actual | sort_by(.context)) == ($expected | sort_by(.context))' \
+            > /dev/null; then
+            echo "Ruleset 13514838 does not have the exact required context/App bindings."
+          fi
+          UPDATED_DEPENDENCIES=$(jq -c \
+            '[.[] | {previousVersion: .prevVersion, newVersion: .newVersion}]' \
+            <<< "$UPDATED_DEPENDENCIES_JSON")
+          SUCCESSFUL_CHECKS=$(jq -c \
+            '[.statusCheckRollup[] | select(.conclusion == "SUCCESS" or .state == "SUCCESS") | (.context // .name)]' \
+            "$RUNNER_TEMP/admission-pr.json")
+          OPEN_STATE_ISSUES=$(jq -c 'length' "$RUNNER_TEMP/admission-issues.json")
+          ARMED_PULL_REQUESTS=$(jq -c \
+            --argjson prNumber "$PR_NUMBER" \
+            '[.[] | select(.number != $prNumber and .autoMergeRequest != null)] | length' \
+            "$RUNNER_TEMP/admission-open-prs.json")
+
+          jq -n \
+            --arg actor "$(jq -r '.user.login' "$RUNNER_TEMP/admission-pull.json")" \
+            --arg repository "$GITHUB_REPOSITORY" \
+            --arg base "$(jq -r '.base.ref' "$RUNNER_TEMP/admission-pull.json")" \
+            --arg headRepository "$(jq -r '.head.repo.full_name // ""' "$RUNNER_TEMP/admission-pull.json")" \
+            --argjson draft "$(jq -c '.draft' "$RUNNER_TEMP/admission-pull.json")" \
+            --arg expectedHeadSha "$EXPECTED_HEAD_SHA" \
+            --arg currentHeadSha "$CURRENT_HEAD_SHA" \
+            --arg updateType "$UPDATE_TYPE" \
+            --arg packageEcosystem "$PACKAGE_ECOSYSTEM" \
+            --arg directory "$DEPENDENCY_DIRECTORY" \
+            --argjson maintainerChanges "$MAINTAINER_CHANGES" \
+            --argjson files "$FILES_JSON" \
+            --argjson rulesetId "$RULESET_ID" \
+            --arg rulesetEnforcement "$RULESET_ENFORCEMENT" \
+            --arg rulesetTarget "$RULESET_TARGET" \
+            --argjson rulesetInclude "$RULESET_INCLUDE" \
+            --argjson rulesetExclude "$RULESET_EXCLUDE" \
+            --argjson rulesetStrict "$RULESET_STRICT" \
+            --argjson requiredChecks "$REQUIRED_CHECKS_JSON" \
+            --argjson updatedDependencies "$UPDATED_DEPENDENCIES" \
+            --argjson behindBy "$(jq -c '.behind_by' "$RUNNER_TEMP/admission-comparison.json")" \
+            --arg mergeable "$(jq -r '.mergeable' "$RUNNER_TEMP/admission-pr.json")" \
+            --arg mergeStateStatus "$(jq -r '.mergeStateStatus' "$RUNNER_TEMP/admission-pr.json")" \
+            --argjson successfulChecks "$SUCCESSFUL_CHECKS" \
+            --argjson openStateIssues "$OPEN_STATE_ISSUES" \
+            --argjson armedPullRequests "$ARMED_PULL_REQUESTS" \
+            '{
+              actor: $actor,
+              repository: $repository,
+              base: $base,
+              headRepository: $headRepository,
+              draft: $draft,
+              expectedHeadSha: $expectedHeadSha,
+              currentHeadSha: $currentHeadSha,
+              updateType: $updateType,
+              packageEcosystem: $packageEcosystem,
+              directory: $directory,
+              maintainerChanges: $maintainerChanges,
+              files: $files,
+              rulesetId: $rulesetId,
+              rulesetEnforcement: $rulesetEnforcement,
+              rulesetTarget: $rulesetTarget,
+              rulesetInclude: $rulesetInclude,
+              rulesetExclude: $rulesetExclude,
+              rulesetStrict: $rulesetStrict,
+              requiredChecks: $requiredChecks,
+              updatedDependencies: $updatedDependencies,
+              behindBy: $behindBy,
+              mergeable: $mergeable,
+              mergeStateStatus: $mergeStateStatus,
+              successfulChecks: $successfulChecks,
+              openStateIssues: $openStateIssues,
+              armedPullRequests: $armedPullRequests
+            }' > "$RUNNER_TEMP/admission-input.json"
+
+          node scripts/dependabot-automerge-policy.cjs admission \
+            < "$RUNNER_TEMP/admission-input.json" \
+            > "$RUNNER_TEMP/admission-result.json"
+          jq -r \
+            '"## Dependabot auto-merge admission\n\nEligible: \(.eligible)\n\n" +
+            (if (.reasons | length) == 0
+             then "No rejection reasons."
+             else (.reasons | map("- " + .) | join("\n"))
+             end)' \
+            "$RUNNER_TEMP/admission-result.json" >> "$GITHUB_STEP_SUMMARY"
+          echo "eligible=$(jq -r '.eligible == true' "$RUNNER_TEMP/admission-result.json")" \
+            >> "$GITHUB_OUTPUT"
+          echo "base-sha=$MAIN_SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Create pilot state issue
+        id: state-issue
+        if: steps.admission.outputs.eligible == 'true'
+        run: |
+          set -euo pipefail
+          STATE_ISSUE_URL=$(gh issue create \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "rss-automerge-pilot-state" \
+            --label "rss-automerge-pilot-state" \
+            --body "RSS exact-head dependency merge/canary is in progress for PR #$PR_NUMBER at expected head $EXPECTED_HEAD_SHA. This issue remains open until the exact merge SHA passes CI.")
+          echo "url=$STATE_ISSUE_URL" >> "$GITHUB_OUTPUT"
+
+      - name: Merge the admitted head immediately
+        id: merge
+        if: steps.admission.outputs.eligible == 'true'
+        continue-on-error: true
+        run: |
+          gh pr merge "$PR_URL" \
+            --repo "$GITHUB_REPOSITORY" \
+            --squash \
+            --match-head-commit "$EXPECTED_HEAD_SHA"
+
+      - name: Record the exact merge SHA
+        id: record-merge
+        if: >-
+          always() &&
+          steps.admission.outputs.eligible == 'true' &&
+          steps.state-issue.outcome == 'success'
+        env:
+          BASE_SHA: ${{ steps.admission.outputs.base-sha }}
+          STATE_ISSUE_URL: ${{ steps.state-issue.outputs.url }}
+        run: |
+          set -euo pipefail
+          DEADLINE=$((SECONDS + 60))
+
+          while (( SECONDS < DEADLINE )); do
+            if gh pr view "$PR_URL" \
+              --repo "$GITHUB_REPOSITORY" \
+              --json headRefOid,mergeCommit,mergedAt \
+              > "$RUNNER_TEMP/merged-pr.json"; then
+              MERGED_AT=$(jq -r '.mergedAt // ""' "$RUNNER_TEMP/merged-pr.json" \
+                2> /dev/null || true)
+              CURRENT_HEAD_SHA=$(jq -r '.headRefOid // ""' "$RUNNER_TEMP/merged-pr.json" \
+                2> /dev/null || true)
+              MERGE_SHA=$(jq -r '.mergeCommit.oid // ""' "$RUNNER_TEMP/merged-pr.json" \
+                2> /dev/null || true)
+
+              if [[ -n "$MERGED_AT" &&
+                    "$CURRENT_HEAD_SHA" == "$EXPECTED_HEAD_SHA" &&
+                    "$MERGE_SHA" =~ ^[0-9a-fA-F]{40}$ ]]; then
+                jq -n \
+                  --argjson prNumber "$PR_NUMBER" \
+                  --arg prUrl "$PR_URL" \
+                  --arg headSha "$EXPECTED_HEAD_SHA" \
+                  --arg baseSha "$BASE_SHA" \
+                  --arg mergeSha "$MERGE_SHA" \
+                  '{
+                    version: 1,
+                    prNumber: $prNumber,
+                    prUrl: $prUrl,
+                    headSha: $headSha,
+                    baseSha: $baseSha,
+                    mergeSha: $mergeSha
+                  }' |
+                  node scripts/dependabot-automerge-policy.cjs state-body \
+                    > "$RUNNER_TEMP/state-body.json"
+                STATE_BODY=$(jq -r '.body' "$RUNNER_TEMP/state-body.json")
+                gh issue edit "$STATE_ISSUE_URL" \
+                  --repo "$GITHUB_REPOSITORY" \
+                  --body "$STATE_BODY"
+                echo "merge-sha=$MERGE_SHA" >> "$GITHUB_OUTPUT"
+                echo "Recorded exact merge SHA \`$MERGE_SHA\` in $STATE_ISSUE_URL." \
+                  >> "$GITHUB_STEP_SUMMARY"
+                exit 0
+              fi
+            fi
+
+            REMAINING=$((DEADLINE - SECONDS))
+            if (( REMAINING > 0 )); then
+              if (( REMAINING < 5 )); then
+                sleep "$REMAINING"
+              else
+                sleep 5
+              fi
+            fi
+          done
+
+          echo "The exact merge was not observed within 60 seconds; $STATE_ISSUE_URL remains open and the pilot lane is paused." \
+            >> "$GITHUB_STEP_SUMMARY"
+          gh issue edit "$STATE_ISSUE_URL" \
+            --repo "$GITHUB_REPOSITORY" \
+            --add-label "rss-automerge-pilot-paused"
+          exit 1
+
+      - name: Dispatch the exact merge SHA canary
+        if: steps.record-merge.outcome == 'success'
+        env:
+          MERGE_SHA: ${{ steps.record-merge.outputs.merge-sha }}
+          STATE_ISSUE_URL: ${{ steps.state-issue.outputs.url }}
+        run: |
+          set -euo pipefail
+
+          jq -n \
+            --arg mergeSha "$MERGE_SHA" \
+            '{
+              event_type: "rss-dependabot-automerge-canary",
+              client_payload: {merge_sha: $mergeSha}
+            }' > "$RUNNER_TEMP/canary-dispatch.json"
+          if ! gh api --method POST "repos/$GITHUB_REPOSITORY/dispatches" \
+            --input "$RUNNER_TEMP/canary-dispatch.json"; then
+            gh issue edit "$STATE_ISSUE_URL" \
+              --repo "$GITHUB_REPOSITORY" \
+              --add-label "rss-automerge-pilot-paused"
+            echo "Dispatch failed; $STATE_ISSUE_URL remains open and the pilot lane is paused." \
+              >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          echo "Dispatched the exact merge SHA \`$MERGE_SHA\` to the read-only canary." \
+            >> "$GITHUB_STEP_SUMMARY"

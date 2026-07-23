@@ -1,0 +1,245 @@
+name: Dependabot Auto-merge Circuit Breaker
+
+on:
+  repository_dispatch:
+    types: [rss-dependabot-automerge-canary]
+
+concurrency:
+  group: rss-dependabot-automerge-canary-${{ github.event.client_payload.merge_sha }}
+  cancel-in-progress: false
+
+jobs:
+  lint-and-test:
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [20, 22]
+    steps:
+      - name: Validate the dispatched merge SHA
+        env:
+          DISPATCHED_MERGE_SHA: ${{ github.event.client_payload.merge_sha }}
+        run: |
+          if [[ ! "$DISPATCHED_MERGE_SHA" =~ ^([0-9a-f]{40})$ ]]; then
+            echo "The dispatched merge SHA is malformed."
+            exit 1
+          fi
+
+      - name: Check out the exact dispatched merge
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.event.client_payload.merge_sha }}
+          persist-credentials: false
+
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Check formatting
+        run: npm run format:check
+
+      - name: Type check
+        run: npm run typecheck
+
+      - name: Run tests
+        run: npm run test:ci
+        env:
+          API_KEY: test-api-key
+          NODE_ENV: test
+
+  claudelint:
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate the dispatched merge SHA
+        env:
+          DISPATCHED_MERGE_SHA: ${{ github.event.client_payload.merge_sha }}
+        run: |
+          if [[ ! "$DISPATCHED_MERGE_SHA" =~ ^([0-9a-f]{40})$ ]]; then
+            echo "The dispatched merge SHA is malformed."
+            exit 1
+          fi
+
+      - name: Check out the exact dispatched merge
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.event.client_payload.merge_sha }}
+          persist-credentials: false
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 22
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify automation policy
+        run: npm run test:automation-policy
+
+      - name: Lint Claude Code config
+        run: ./node_modules/.bin/claudelint check-all --format github --no-cache
+
+  finalize:
+    needs: [lint-and-test, claudelint]
+    if: ${{ always() }}
+    permissions:
+      contents: read
+      issues: write
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      DISPATCHED_MERGE_SHA: ${{ github.event.client_payload.merge_sha }}
+      LINT_AND_TEST_RESULT: ${{ needs.lint-and-test.result }}
+      CLAUDELINT_RESULT: ${{ needs.claudelint.result }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+    steps:
+      - name: Finalize the exact-SHA canary
+        id: finalize-canary
+        run: |
+          set -euo pipefail
+
+          if [[ ! "$DISPATCHED_MERGE_SHA" =~ ^([0-9a-f]{40})$ ]]; then
+            echo "Ignoring a malformed dispatched merge SHA." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          if [[ "$LINT_AND_TEST_RESULT" == "success" &&
+                "$CLAUDELINT_RESULT" == "success" ]]; then
+            CANARY_CONCLUSION="success"
+            DECISION="clear"
+          elif [[ "$LINT_AND_TEST_RESULT" == "cancelled" ||
+                  "$CLAUDELINT_RESULT" == "cancelled" ]]; then
+            CANARY_CONCLUSION="cancelled"
+            DECISION="pause"
+          else
+            CANARY_CONCLUSION="failure"
+            DECISION="pause"
+          fi
+
+          parse_state() {
+            node -e '
+              const fs = require("node:fs");
+              const body = fs.readFileSync(0, "utf8");
+              const marker = /<!-- rss-automerge-pilot-state-v1\r?\n([\s\S]*?)\r?\n-->/g;
+              const matches = [...body.matchAll(marker)];
+              let state = null;
+              if (matches.length === 1) {
+                try {
+                  const candidate = JSON.parse(matches[0][1]);
+                  const isSha = (value) =>
+                    typeof value === "string" && /^[0-9a-f]{40}$/i.test(value);
+                  if (
+                    candidate &&
+                    candidate.version === 1 &&
+                    Number.isInteger(candidate.prNumber) &&
+                    candidate.prNumber > 0 &&
+                    typeof candidate.prUrl === "string" &&
+                    candidate.prUrl.length > 0 &&
+                    isSha(candidate.headSha) &&
+                    isSha(candidate.baseSha) &&
+                    isSha(candidate.mergeSha)
+                  ) {
+                    state = candidate;
+                  }
+                } catch {}
+              }
+              process.stdout.write(JSON.stringify(state));
+            '
+          }
+
+          gh issue list \
+            --repo "$GITHUB_REPOSITORY" \
+            --state open \
+            --label "rss-automerge-pilot-state" \
+            --limit 1000 \
+            --json body,url \
+            > "$RUNNER_TEMP/state-issues.json"
+
+          jq -c '.[]' "$RUNNER_TEMP/state-issues.json" |
+            while IFS= read -r ISSUE; do
+              ISSUE_URL=$(jq -r '.url' <<< "$ISSUE")
+              ISSUE_BODY=$(jq -r '.body' <<< "$ISSUE")
+              STATE=$(parse_state <<< "$ISSUE_BODY")
+              if [[ "$STATE" == "null" ]]; then
+                continue
+              fi
+
+              MERGE_SHA=$(jq -r '.mergeSha' <<< "$STATE")
+              if [[ "$MERGE_SHA" != "$DISPATCHED_MERGE_SHA" ]]; then
+                continue
+              fi
+
+              case "$DECISION" in
+                clear)
+                  gh issue view "$ISSUE_URL" \
+                    --repo "$GITHUB_REPOSITORY" \
+                    --json body,labels,state \
+                    > "$RUNNER_TEMP/current-state-issue.json"
+                  CURRENT_ISSUE_STATE=$(jq -r '.state' \
+                    "$RUNNER_TEMP/current-state-issue.json")
+                  CURRENT_BODY=$(jq -r '.body' \
+                    "$RUNNER_TEMP/current-state-issue.json")
+                  CURRENT_STATE=$(parse_state <<< "$CURRENT_BODY")
+                  if [[ "$CURRENT_ISSUE_STATE" != "OPEN" ||
+                        "$CURRENT_STATE" == "null" ]]; then
+                    continue
+                  fi
+                  CURRENT_MERGE_SHA=$(jq -r '.mergeSha' <<< "$CURRENT_STATE")
+                  if [[ "$CURRENT_MERGE_SHA" != "$DISPATCHED_MERGE_SHA" ]]; then
+                    continue
+                  fi
+                  if ! jq -e \
+                    'any(.labels[]?; .name == "rss-automerge-pilot-state")' \
+                    "$RUNNER_TEMP/current-state-issue.json" > /dev/null; then
+                    continue
+                  fi
+                  if jq -e \
+                    'any(.labels[]?; .name == "rss-automerge-pilot-paused")' \
+                    "$RUNNER_TEMP/current-state-issue.json" > /dev/null; then
+                    continue
+                  fi
+                  gh issue close "$ISSUE_URL" \
+                    --repo "$GITHUB_REPOSITORY" \
+                    --reason completed \
+                    --comment "Canary cleared by the successful exact-SHA run: $RUN_URL"
+                  ;;
+                pause)
+                  gh issue view "$ISSUE_URL" \
+                    --repo "$GITHUB_REPOSITORY" \
+                    --json body,labels,state \
+                    > "$RUNNER_TEMP/current-state-issue.json"
+                  CURRENT_ISSUE_STATE=$(jq -r '.state' \
+                    "$RUNNER_TEMP/current-state-issue.json")
+                  CURRENT_BODY=$(jq -r '.body' \
+                    "$RUNNER_TEMP/current-state-issue.json")
+                  CURRENT_STATE=$(parse_state <<< "$CURRENT_BODY")
+                  if [[ "$CURRENT_ISSUE_STATE" != "OPEN" ||
+                        "$CURRENT_STATE" == "null" ]]; then
+                    continue
+                  fi
+                  CURRENT_MERGE_SHA=$(jq -r '.mergeSha' <<< "$CURRENT_STATE")
+                  if [[ "$CURRENT_MERGE_SHA" != "$DISPATCHED_MERGE_SHA" ]]; then
+                    continue
+                  fi
+                  gh issue edit "$ISSUE_URL" \
+                    --repo "$GITHUB_REPOSITORY" \
+                    --add-label "rss-automerge-pilot-paused"
+                  gh issue comment "$ISSUE_URL" \
+                    --repo "$GITHUB_REPOSITORY" \
+                    --body "Canary paused after the exact-SHA run concluded \`$CANARY_CONCLUSION\`: $RUN_URL"
+                  ;;
+              esac
+            done
