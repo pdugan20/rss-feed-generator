@@ -376,6 +376,7 @@ jobs:
             --match-head-commit "$EXPECTED_HEAD_SHA"
 
       - name: Record the exact merge SHA
+        id: record-merge
         if: >-
           always() &&
           steps.admission.outputs.eligible == 'true' &&
@@ -422,6 +423,7 @@ jobs:
                 gh issue edit "$STATE_ISSUE_URL" \
                   --repo "$GITHUB_REPOSITORY" \
                   --body "$STATE_BODY"
+                echo "merge-sha=$MERGE_SHA" >> "$GITHUB_OUTPUT"
                 echo "Recorded exact merge SHA \`$MERGE_SHA\` in $STATE_ISSUE_URL." \
                   >> "$GITHUB_STEP_SUMMARY"
                 exit 0
@@ -444,3 +446,29 @@ jobs:
             --repo "$GITHUB_REPOSITORY" \
             --add-label "rss-automerge-pilot-paused"
           exit 1
+
+      - name: Dispatch the exact merge SHA canary
+        if: steps.record-merge.outcome == 'success'
+        env:
+          MERGE_SHA: ${{ steps.record-merge.outputs.merge-sha }}
+          STATE_ISSUE_URL: ${{ steps.state-issue.outputs.url }}
+        run: |
+          set -euo pipefail
+
+          jq -n \
+            --arg mergeSha "$MERGE_SHA" \
+            '{
+              event_type: "rss-dependabot-automerge-canary",
+              client_payload: {merge_sha: $mergeSha}
+            }' > "$RUNNER_TEMP/canary-dispatch.json"
+          if ! gh api --method POST "repos/$GITHUB_REPOSITORY/dispatches" \
+            --input "$RUNNER_TEMP/canary-dispatch.json"; then
+            gh issue edit "$STATE_ISSUE_URL" \
+              --repo "$GITHUB_REPOSITORY" \
+              --add-label "rss-automerge-pilot-paused"
+            echo "Dispatch failed; $STATE_ISSUE_URL remains open and the pilot lane is paused." \
+              >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          echo "Dispatched the exact merge SHA \`$MERGE_SHA\` to the read-only canary." \
+            >> "$GITHUB_STEP_SUMMARY"
