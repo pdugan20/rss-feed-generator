@@ -13,8 +13,11 @@ type AdmissionInput = {
   directory: string;
   maintainerChanges: boolean;
   files: string[];
-  allowAutoMerge: boolean;
   rulesetId: number;
+  rulesetEnforcement: string;
+  rulesetTarget: string;
+  rulesetInclude: string[];
+  rulesetExclude: string[];
   rulesetStrict: boolean;
   requiredChecks: Array<{ context: string; integrationId: number }>;
   updatedDependencies: Array<{ previousVersion: string; newVersion: string }>;
@@ -44,12 +47,15 @@ function validInput(): AdmissionInput {
     expectedHeadSha: headSha,
     currentHeadSha: headSha,
     updateType: 'version-update:semver-patch',
-    packageEcosystem: 'npm',
+    packageEcosystem: 'npm_and_yarn',
     directory: '/',
     maintainerChanges: false,
     files: ['package.json', 'package-lock.json'],
-    allowAutoMerge: true,
     rulesetId: 13514838,
+    rulesetEnforcement: 'active',
+    rulesetTarget: 'branch',
+    rulesetInclude: ['~DEFAULT_BRANCH'],
+    rulesetExclude: [],
     rulesetStrict: true,
     requiredChecks: requiredCheckBindings,
     updatedDependencies: [{ previousVersion: '1.2.3', newVersion: '1.2.4' }],
@@ -69,14 +75,24 @@ describe('Dependabot auto-merge policy', () => {
     ['draft', { draft: true }, 'draft'],
     ['changed head', { currentHeadSha: 'b'.repeat(40) }, 'head SHA'],
     ['minor update', { updateType: 'version-update:semver-minor' }, 'patch'],
-    ['actions update', { packageEcosystem: 'github-actions' }, 'npm'],
+    ['legacy npm ecosystem value', { packageEcosystem: 'npm' }, 'npm_and_yarn'],
+    ['actions update', { packageEcosystem: 'github-actions' }, 'npm_and_yarn'],
+    ['other ecosystem', { packageEcosystem: 'bundler' }, 'npm_and_yarn'],
     ['wrong directory', { directory: '/tools' }, 'directory'],
     ['maintainer changes', { maintainerChanges: true }, 'maintainer'],
     ['workflow diff', { files: ['package-lock.json', '.github/workflows/ci.yml'] }, 'files'],
     ['missing lockfile', { files: ['package.json'] }, 'package-lock.json'],
     ['stale base', { behindBy: 1 }, 'current base'],
     ['conflict', { mergeable: 'CONFLICTING' }, 'mergeable'],
-    ['disabled repository auto-merge', { allowAutoMerge: false }, 'repository auto-merge'],
+    ['inactive ruleset', { rulesetEnforcement: 'disabled' }, 'active'],
+    ['non-branch ruleset', { rulesetTarget: 'tag' }, 'branch'],
+    ['missing default branch include', { rulesetInclude: [] }, 'default branch'],
+    [
+      'extra ruleset include',
+      { rulesetInclude: ['~DEFAULT_BRANCH', 'refs/heads/release'] },
+      'default branch',
+    ],
+    ['ruleset exclusion', { rulesetExclude: ['refs/heads/main'] }, 'exclude'],
     ['non-strict ruleset', { rulesetStrict: false }, 'strict'],
     [
       'wrong App binding',
@@ -140,6 +156,26 @@ describe('Dependabot auto-merge policy', () => {
       'version',
     ],
     [
+      'previous prerelease dependency version',
+      { updatedDependencies: [{ previousVersion: '1.2.3-rc.1', newVersion: '1.2.3' }] },
+      'prerelease',
+    ],
+    [
+      'new prerelease dependency version',
+      { updatedDependencies: [{ previousVersion: '1.2.3', newVersion: '1.2.4-beta.1' }] },
+      'prerelease',
+    ],
+    [
+      'grouped prerelease dependency version',
+      {
+        updatedDependencies: [
+          { previousVersion: '1.2.3', newVersion: '1.2.4' },
+          { previousVersion: '2.3.4-alpha.1', newVersion: '2.3.4' },
+        ],
+      },
+      'prerelease',
+    ],
+    [
       'pre-1.0 single dependency',
       { updatedDependencies: [{ previousVersion: '0.9.0', newVersion: '1.0.0' }] },
       'pre-1.0',
@@ -170,6 +206,17 @@ describe('Dependabot auto-merge policy', () => {
 
   it('marks a valid admission as eligible', () => {
     expect(policy.evaluateAdmission(validInput())).toEqual({ eligible: true, reasons: [] });
+  });
+
+  it('admits stable dependency versions with build metadata', () => {
+    expect(
+      policy.evaluateAdmission({
+        ...validInput(),
+        updatedDependencies: [
+          { previousVersion: '1.2.3+build-old', newVersion: '1.2.4+build-new.1' },
+        ],
+      })
+    ).toEqual({ eligible: true, reasons: [] });
   });
 
   it('fails closed when admission data is incomplete', () => {

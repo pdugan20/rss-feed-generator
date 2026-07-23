@@ -38,6 +38,8 @@ type Workflow = {
       steps?: Array<{
         id?: string;
         name?: string;
+        if?: string;
+        'continue-on-error'?: boolean;
         uses?: string;
         run?: string;
         with?: Record<string, unknown>;
@@ -280,7 +282,8 @@ jobs:
     const waitIndex = steps.findIndex((step) => step.id === 'required-checks');
     const admissionIndex = steps.findIndex((step) => step.id === 'admission');
     const issueIndex = steps.findIndex((step) => step.id === 'state-issue');
-    const mergeIndex = steps.findIndex((step) => step.id === 'enable-auto-merge');
+    const mergeIndex = steps.findIndex((step) => step.id === 'merge');
+    const recordIndex = steps.findIndex((step) => step.name === 'Record the exact merge SHA');
     const preflightRun = steps[preflightIndex]?.run ?? '';
     const admissionRun = steps[admissionIndex]?.run ?? '';
 
@@ -318,6 +321,7 @@ jobs:
     expect(admissionIndex).toBeGreaterThan(waitIndex);
     expect(issueIndex).toBeGreaterThan(admissionIndex);
     expect(mergeIndex).toBeGreaterThan(issueIndex);
+    expect(recordIndex).toBeGreaterThan(mergeIndex);
     expect(steps[preflightIndex]?.run).toContain(
       'node scripts/dependabot-automerge-policy.cjs preflight'
     );
@@ -339,13 +343,25 @@ jobs:
       expect(run).toContain(
         'gh api "repos/$GITHUB_REPOSITORY/compare/$MAIN_SHA...$CURRENT_HEAD_SHA"'
       );
+      expect(run).not.toContain('gh api "repos/$GITHUB_REPOSITORY"');
       expect(run).not.toContain("jq -r '.base.sha'");
+      expect(run).not.toContain('allow_auto_merge');
+      expect(run).toContain("RULESET_ENFORCEMENT=$(jq -r '.enforcement'");
+      expect(run).toContain("RULESET_TARGET=$(jq -r '.target'");
+      expect(run).toContain("RULESET_INCLUDE=$(jq -c '.conditions.ref_name.include'");
+      expect(run).toContain("RULESET_EXCLUDE=$(jq -c '.conditions.ref_name.exclude'");
     }
     expect(admissionRun).toContain('echo "base-sha=$MAIN_SHA" >> "$GITHUB_OUTPUT"');
     expect(steps[issueIndex]?.run).toContain('rss-automerge-pilot-state');
     expect(steps[issueIndex]?.run).toContain('--label "rss-automerge-pilot-state"');
+    expect(steps[issueIndex]?.run).toContain('exact-head dependency merge/canary is in progress');
+    expect(steps[issueIndex]?.run).not.toContain('native auto-merge pilot is armed');
     expect(steps[mergeIndex]?.run).toContain('gh pr merge "$PR_URL"');
+    expect(steps[mergeIndex]?.['continue-on-error']).toBe(true);
+    expect(steps[mergeIndex]?.run).toContain('--squash');
     expect(steps[mergeIndex]?.run).toContain('--match-head-commit "$EXPECTED_HEAD_SHA"');
+    expect(steps[mergeIndex]?.run).not.toContain('--auto');
+    expect(steps[recordIndex]?.if).toContain('always()');
     expect(contents.match(/gh issue list/g)).toHaveLength(2);
     expect(contents.match(/--label "rss-automerge-pilot-state"/g)).toHaveLength(3);
 
@@ -354,6 +370,10 @@ jobs:
       'currentHeadSha',
       'updatedDependencies',
       'rulesetId',
+      'rulesetEnforcement',
+      'rulesetTarget',
+      'rulesetInclude',
+      'rulesetExclude',
       'rulesetStrict',
       'requiredChecks',
       'successfulChecks',
@@ -371,9 +391,16 @@ jobs:
       expect(contents).toContain(context);
     }
     expect(contents).toContain('integrationId: 15368');
+    expect(contents).toContain(
+      'PACKAGE_ECOSYSTEM: ${{ steps.dependabot-metadata.outputs.package-ecosystem }}'
+    );
+    expect(contents).toContain('--arg packageEcosystem "$PACKAGE_ECOSYSTEM"');
     expect(contents).toContain('prevVersion');
     expect(contents).toContain('newVersion');
     expect(contents).toContain('GITHUB_STEP_SUMMARY');
+    expect(contents).not.toContain('allowAutoMerge');
+    expect(contents).not.toContain('allow_auto_merge');
+    expect(contents).not.toContain('--auto');
     expect(contents).not.toContain('--admin');
     expect(contents).not.toContain('secrets.');
     expect(contents).not.toMatch(
@@ -383,13 +410,19 @@ jobs:
 
   it('pauses the sentinel and fails visibly when the exact merge is not observed', () => {
     const workflow = readWorkflow(autoMergePilotWorkflow);
-    const recordMergeRun =
-      workflow.jobs?.admit?.steps?.find((step) => step.name === 'Record the exact merge SHA')
-        ?.run ?? '';
+    const recordMergeStep = workflow.jobs?.admit?.steps?.find(
+      (step) => step.name === 'Record the exact merge SHA'
+    );
+    const recordMergeRun = recordMergeStep?.run ?? '';
     const timeoutBlock = recordMergeRun.split(
       'The exact merge was not observed within 60 seconds'
     )[1];
 
+    expect(recordMergeStep?.if).toContain('always()');
+    expect(recordMergeStep?.if).toContain("steps.admission.outputs.eligible == 'true'");
+    expect(recordMergeStep?.if).toContain("steps.state-issue.outcome == 'success'");
+    expect(recordMergeRun).toMatch(/if gh pr view "\$PR_URL"[\s\S]*then[\s\S]*MERGED_AT=/);
+    expect(recordMergeRun.match(/2> \/dev\/null \|\| true/g)).toHaveLength(3);
     expect(timeoutBlock).toContain('--add-label "rss-automerge-pilot-paused"');
     expect(timeoutBlock).toContain('exit 1');
     expect(timeoutBlock).not.toContain('--body');
@@ -430,6 +463,12 @@ jobs:
     expect(evaluateStep?.run).toContain('node scripts/dependabot-automerge-policy.cjs canary');
     expect(evaluateStep?.run).toContain('gh issue list');
     expect(evaluateStep?.run).toContain('--label "rss-automerge-pilot-state"');
+    expect(evaluateStep?.run).toContain('--json body,labels,url');
+    expect(evaluateStep?.run).toContain('rss-automerge-pilot-paused');
+    expect(evaluateStep?.run).toMatch(
+      /rss-automerge-pilot-paused[\s\S]*continue[\s\S]*case "\$DECISION" in/
+    );
+    expect(evaluateStep?.run).not.toContain('--remove-label "rss-automerge-pilot-paused"');
     expect(evaluateStep?.run).toMatch(
       /pause\)[\s\S]*--add-label "rss-automerge-pilot-paused"[\s\S]*gh issue comment/
     );

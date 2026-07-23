@@ -64,7 +64,6 @@ jobs:
             --slurp \
             "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/files?per_page=100" \
             > "$RUNNER_TEMP/preflight-file-pages.json"
-          gh api "repos/$GITHUB_REPOSITORY" > "$RUNNER_TEMP/preflight-repository.json"
           gh api "repos/$GITHUB_REPOSITORY/rulesets/13514838" \
             > "$RUNNER_TEMP/preflight-ruleset.json"
           gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" \
@@ -89,8 +88,11 @@ jobs:
             > "$RUNNER_TEMP/preflight-open-prs.json"
 
           FILES_JSON=$(jq -c '[.[][] | .filename]' "$RUNNER_TEMP/preflight-file-pages.json")
-          ALLOW_AUTO_MERGE=$(jq -c '.allow_auto_merge' "$RUNNER_TEMP/preflight-repository.json")
           RULESET_ID=$(jq -c '.id' "$RUNNER_TEMP/preflight-ruleset.json")
+          RULESET_ENFORCEMENT=$(jq -r '.enforcement' "$RUNNER_TEMP/preflight-ruleset.json")
+          RULESET_TARGET=$(jq -r '.target' "$RUNNER_TEMP/preflight-ruleset.json")
+          RULESET_INCLUDE=$(jq -c '.conditions.ref_name.include' "$RUNNER_TEMP/preflight-ruleset.json")
+          RULESET_EXCLUDE=$(jq -c '.conditions.ref_name.exclude' "$RUNNER_TEMP/preflight-ruleset.json")
           RULESET_STRICT=$(jq -c \
             '[.rules[] | select(.type == "required_status_checks")][0].parameters.strict_required_status_checks_policy' \
             "$RUNNER_TEMP/preflight-ruleset.json")
@@ -136,8 +138,11 @@ jobs:
             --arg directory "$DEPENDENCY_DIRECTORY" \
             --argjson maintainerChanges "$MAINTAINER_CHANGES" \
             --argjson files "$FILES_JSON" \
-            --argjson allowAutoMerge "$ALLOW_AUTO_MERGE" \
             --argjson rulesetId "$RULESET_ID" \
+            --arg rulesetEnforcement "$RULESET_ENFORCEMENT" \
+            --arg rulesetTarget "$RULESET_TARGET" \
+            --argjson rulesetInclude "$RULESET_INCLUDE" \
+            --argjson rulesetExclude "$RULESET_EXCLUDE" \
             --argjson rulesetStrict "$RULESET_STRICT" \
             --argjson requiredChecks "$REQUIRED_CHECKS_JSON" \
             --argjson updatedDependencies "$UPDATED_DEPENDENCIES" \
@@ -160,8 +165,11 @@ jobs:
               directory: $directory,
               maintainerChanges: $maintainerChanges,
               files: $files,
-              allowAutoMerge: $allowAutoMerge,
               rulesetId: $rulesetId,
+              rulesetEnforcement: $rulesetEnforcement,
+              rulesetTarget: $rulesetTarget,
+              rulesetInclude: $rulesetInclude,
+              rulesetExclude: $rulesetExclude,
               rulesetStrict: $rulesetStrict,
               requiredChecks: $requiredChecks,
               updatedDependencies: $updatedDependencies,
@@ -214,7 +222,6 @@ jobs:
             --slurp \
             "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/files?per_page=100" \
             > "$RUNNER_TEMP/admission-file-pages.json"
-          gh api "repos/$GITHUB_REPOSITORY" > "$RUNNER_TEMP/admission-repository.json"
           gh api "repos/$GITHUB_REPOSITORY/rulesets/13514838" \
             > "$RUNNER_TEMP/admission-ruleset.json"
           gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" \
@@ -239,8 +246,11 @@ jobs:
             > "$RUNNER_TEMP/admission-open-prs.json"
 
           FILES_JSON=$(jq -c '[.[][] | .filename]' "$RUNNER_TEMP/admission-file-pages.json")
-          ALLOW_AUTO_MERGE=$(jq -c '.allow_auto_merge' "$RUNNER_TEMP/admission-repository.json")
           RULESET_ID=$(jq -c '.id' "$RUNNER_TEMP/admission-ruleset.json")
+          RULESET_ENFORCEMENT=$(jq -r '.enforcement' "$RUNNER_TEMP/admission-ruleset.json")
+          RULESET_TARGET=$(jq -r '.target' "$RUNNER_TEMP/admission-ruleset.json")
+          RULESET_INCLUDE=$(jq -c '.conditions.ref_name.include' "$RUNNER_TEMP/admission-ruleset.json")
+          RULESET_EXCLUDE=$(jq -c '.conditions.ref_name.exclude' "$RUNNER_TEMP/admission-ruleset.json")
           RULESET_STRICT=$(jq -c \
             '[.rules[] | select(.type == "required_status_checks")][0].parameters.strict_required_status_checks_policy' \
             "$RUNNER_TEMP/admission-ruleset.json")
@@ -286,8 +296,11 @@ jobs:
             --arg directory "$DEPENDENCY_DIRECTORY" \
             --argjson maintainerChanges "$MAINTAINER_CHANGES" \
             --argjson files "$FILES_JSON" \
-            --argjson allowAutoMerge "$ALLOW_AUTO_MERGE" \
             --argjson rulesetId "$RULESET_ID" \
+            --arg rulesetEnforcement "$RULESET_ENFORCEMENT" \
+            --arg rulesetTarget "$RULESET_TARGET" \
+            --argjson rulesetInclude "$RULESET_INCLUDE" \
+            --argjson rulesetExclude "$RULESET_EXCLUDE" \
             --argjson rulesetStrict "$RULESET_STRICT" \
             --argjson requiredChecks "$REQUIRED_CHECKS_JSON" \
             --argjson updatedDependencies "$UPDATED_DEPENDENCIES" \
@@ -310,8 +323,11 @@ jobs:
               directory: $directory,
               maintainerChanges: $maintainerChanges,
               files: $files,
-              allowAutoMerge: $allowAutoMerge,
               rulesetId: $rulesetId,
+              rulesetEnforcement: $rulesetEnforcement,
+              rulesetTarget: $rulesetTarget,
+              rulesetInclude: $rulesetInclude,
+              rulesetExclude: $rulesetExclude,
               rulesetStrict: $rulesetStrict,
               requiredChecks: $requiredChecks,
               updatedDependencies: $updatedDependencies,
@@ -346,21 +362,24 @@ jobs:
             --repo "$GITHUB_REPOSITORY" \
             --title "rss-automerge-pilot-state" \
             --label "rss-automerge-pilot-state" \
-            --body "RSS native auto-merge pilot is armed for PR #$PR_NUMBER at expected head $EXPECTED_HEAD_SHA. This issue remains open until the exact merge SHA passes CI.")
+            --body "RSS exact-head dependency merge/canary is in progress for PR #$PR_NUMBER at expected head $EXPECTED_HEAD_SHA. This issue remains open until the exact merge SHA passes CI.")
           echo "url=$STATE_ISSUE_URL" >> "$GITHUB_OUTPUT"
 
-      - name: Enable native auto-merge at the admitted head
-        id: enable-auto-merge
+      - name: Merge the admitted head immediately
+        id: merge
         if: steps.admission.outputs.eligible == 'true'
+        continue-on-error: true
         run: |
           gh pr merge "$PR_URL" \
             --repo "$GITHUB_REPOSITORY" \
-            --auto \
             --squash \
             --match-head-commit "$EXPECTED_HEAD_SHA"
 
       - name: Record the exact merge SHA
-        if: steps.admission.outputs.eligible == 'true'
+        if: >-
+          always() &&
+          steps.admission.outputs.eligible == 'true' &&
+          steps.state-issue.outcome == 'success'
         env:
           BASE_SHA: ${{ steps.admission.outputs.base-sha }}
           STATE_ISSUE_URL: ${{ steps.state-issue.outputs.url }}
@@ -369,40 +388,44 @@ jobs:
           DEADLINE=$((SECONDS + 60))
 
           while (( SECONDS < DEADLINE )); do
-            gh pr view "$PR_URL" \
+            if gh pr view "$PR_URL" \
               --repo "$GITHUB_REPOSITORY" \
               --json headRefOid,mergeCommit,mergedAt \
-              > "$RUNNER_TEMP/merged-pr.json"
-            MERGED_AT=$(jq -r '.mergedAt // ""' "$RUNNER_TEMP/merged-pr.json")
-            CURRENT_HEAD_SHA=$(jq -r '.headRefOid // ""' "$RUNNER_TEMP/merged-pr.json")
-            MERGE_SHA=$(jq -r '.mergeCommit.oid // ""' "$RUNNER_TEMP/merged-pr.json")
+              > "$RUNNER_TEMP/merged-pr.json"; then
+              MERGED_AT=$(jq -r '.mergedAt // ""' "$RUNNER_TEMP/merged-pr.json" \
+                2> /dev/null || true)
+              CURRENT_HEAD_SHA=$(jq -r '.headRefOid // ""' "$RUNNER_TEMP/merged-pr.json" \
+                2> /dev/null || true)
+              MERGE_SHA=$(jq -r '.mergeCommit.oid // ""' "$RUNNER_TEMP/merged-pr.json" \
+                2> /dev/null || true)
 
-            if [[ -n "$MERGED_AT" &&
-                  "$CURRENT_HEAD_SHA" == "$EXPECTED_HEAD_SHA" &&
-                  "$MERGE_SHA" =~ ^[0-9a-fA-F]{40}$ ]]; then
-              jq -n \
-                --argjson prNumber "$PR_NUMBER" \
-                --arg prUrl "$PR_URL" \
-                --arg headSha "$EXPECTED_HEAD_SHA" \
-                --arg baseSha "$BASE_SHA" \
-                --arg mergeSha "$MERGE_SHA" \
-                '{
-                  version: 1,
-                  prNumber: $prNumber,
-                  prUrl: $prUrl,
-                  headSha: $headSha,
-                  baseSha: $baseSha,
-                  mergeSha: $mergeSha
-                }' |
-                node scripts/dependabot-automerge-policy.cjs state-body \
-                  > "$RUNNER_TEMP/state-body.json"
-              STATE_BODY=$(jq -r '.body' "$RUNNER_TEMP/state-body.json")
-              gh issue edit "$STATE_ISSUE_URL" \
-                --repo "$GITHUB_REPOSITORY" \
-                --body "$STATE_BODY"
-              echo "Recorded exact merge SHA \`$MERGE_SHA\` in $STATE_ISSUE_URL." \
-                >> "$GITHUB_STEP_SUMMARY"
-              exit 0
+              if [[ -n "$MERGED_AT" &&
+                    "$CURRENT_HEAD_SHA" == "$EXPECTED_HEAD_SHA" &&
+                    "$MERGE_SHA" =~ ^[0-9a-fA-F]{40}$ ]]; then
+                jq -n \
+                  --argjson prNumber "$PR_NUMBER" \
+                  --arg prUrl "$PR_URL" \
+                  --arg headSha "$EXPECTED_HEAD_SHA" \
+                  --arg baseSha "$BASE_SHA" \
+                  --arg mergeSha "$MERGE_SHA" \
+                  '{
+                    version: 1,
+                    prNumber: $prNumber,
+                    prUrl: $prUrl,
+                    headSha: $headSha,
+                    baseSha: $baseSha,
+                    mergeSha: $mergeSha
+                  }' |
+                  node scripts/dependabot-automerge-policy.cjs state-body \
+                    > "$RUNNER_TEMP/state-body.json"
+                STATE_BODY=$(jq -r '.body' "$RUNNER_TEMP/state-body.json")
+                gh issue edit "$STATE_ISSUE_URL" \
+                  --repo "$GITHUB_REPOSITORY" \
+                  --body "$STATE_BODY"
+                echo "Recorded exact merge SHA \`$MERGE_SHA\` in $STATE_ISSUE_URL." \
+                  >> "$GITHUB_STEP_SUMMARY"
+                exit 0
+              fi
             fi
 
             REMAINING=$((DEADLINE - SECONDS))

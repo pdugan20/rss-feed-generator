@@ -56,14 +56,17 @@ function hasExpectedCheckBindings(checks) {
   return actualBindings.size === expectedBindings.size;
 }
 
-function semanticMajor(version) {
+function semanticVersionInfo(version) {
   if (typeof version !== 'string') return null;
 
   const match = version.match(SEMVER_PATTERN);
   if (!match) return null;
 
   const major = Number(version.split('.', 1)[0]);
-  return Number.isSafeInteger(major) ? major : null;
+  if (!Number.isSafeInteger(major)) return null;
+
+  const versionWithoutBuild = version.split('+', 1)[0];
+  return { major, prerelease: versionWithoutBuild.includes('-') };
 }
 
 function updatedDependencyVersionReasons(updatedDependencies) {
@@ -73,20 +76,27 @@ function updatedDependencyVersionReasons(updatedDependencies) {
 
   let malformed = false;
   let preOne = false;
+  let prerelease = false;
   for (const dependency of updatedDependencies) {
-    const previousMajor = semanticMajor(dependency?.previousVersion);
-    const newMajor = semanticMajor(dependency?.newVersion);
+    const previousVersion = semanticVersionInfo(dependency?.previousVersion);
+    const newVersion = semanticVersionInfo(dependency?.newVersion);
 
-    if (previousMajor === null || newMajor === null) {
+    if (previousVersion === null || newVersion === null) {
       malformed = true;
-    } else if (previousMajor === 0 || newMajor === 0) {
-      preOne = true;
+    } else {
+      if (previousVersion.major === 0 || newVersion.major === 0) {
+        preOne = true;
+      }
+      if (previousVersion.prerelease || newVersion.prerelease) {
+        prerelease = true;
+      }
     }
   }
 
   return [
     ...(malformed ? ['updated dependency versions must be valid semantic versions'] : []),
     ...(preOne ? ['pre-1.0 dependency updates are not eligible'] : []),
+    ...(prerelease ? ['prerelease dependency updates are not eligible'] : []),
   ];
 }
 
@@ -105,14 +115,27 @@ function evaluatePreflight(input) {
   if (input.updateType !== 'version-update:semver-patch') {
     reasons.push('update must be a patch update');
   }
-  if (input.packageEcosystem !== 'npm') reasons.push('package ecosystem must be npm');
+  if (input.packageEcosystem !== 'npm_and_yarn') {
+    reasons.push('package ecosystem must be npm_and_yarn');
+  }
   if (input.directory !== '/') reasons.push('directory must be /');
   if (input.maintainerChanges !== false) reasons.push('maintainer changes are not allowed');
   if (!hasExpectedFiles(input.files)) {
     reasons.push('files must include package-lock.json and only package.json or package-lock.json');
   }
-  if (input.allowAutoMerge !== true) reasons.push('repository auto-merge must be enabled');
   if (input.rulesetId !== RULESET_ID) reasons.push('required ruleset does not match');
+  if (input.rulesetEnforcement !== 'active') reasons.push('ruleset enforcement must be active');
+  if (input.rulesetTarget !== 'branch') reasons.push('ruleset target must be branch');
+  if (
+    !Array.isArray(input.rulesetInclude) ||
+    input.rulesetInclude.length !== 1 ||
+    input.rulesetInclude[0] !== '~DEFAULT_BRANCH'
+  ) {
+    reasons.push('ruleset must include exactly the default branch');
+  }
+  if (!Array.isArray(input.rulesetExclude) || input.rulesetExclude.length !== 0) {
+    reasons.push('ruleset must have an empty exclude list');
+  }
   if (input.rulesetStrict !== true) reasons.push('ruleset must be strict');
   if (!hasExpectedCheckBindings(input.requiredChecks)) {
     reasons.push('required check bindings must exactly match the GitHub Actions App ruleset');

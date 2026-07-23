@@ -45,12 +45,17 @@ jobs:
             --state open \
             --label "rss-automerge-pilot-state" \
             --limit 1000 \
-            --json body,url \
+            --json body,labels,url \
             > "$RUNNER_TEMP/state-issues.json"
 
           jq -c '.[]' "$RUNNER_TEMP/state-issues.json" |
             while IFS= read -r ISSUE; do
               ISSUE_URL=$(jq -r '.url' <<< "$ISSUE")
+              if jq -e \
+                'any(.labels[]?; .name == "rss-automerge-pilot-paused")' \
+                <<< "$ISSUE" > /dev/null; then
+                continue
+              fi
               ISSUE_BODY=$(jq -r '.body' <<< "$ISSUE")
               STATE=$(POLICY_PATH="$GITHUB_WORKSPACE/scripts/dependabot-automerge-policy.cjs" \
                 node -e '
