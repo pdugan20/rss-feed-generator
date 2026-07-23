@@ -15,16 +15,11 @@ const REQUIRED_CHECKS = Object.freeze([
 const ALLOWED_FILES = Object.freeze(['package.json', 'package-lock.json']);
 const STATE_MARKER = 'rss-automerge-pilot-state-v1';
 const SHA_PATTERN = /^[0-9a-f]{40}$/i;
+const SEMVER_PATTERN =
+  /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-(?:(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*))*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
 
 function isSha(value) {
   return typeof value === 'string' && SHA_PATTERN.test(value);
-}
-
-function value(input, names) {
-  for (const name of names) {
-    if (input[name] !== undefined) return input[name];
-  }
-  return undefined;
 }
 
 function hasExpectedFiles(files) {
@@ -35,18 +30,66 @@ function hasExpectedFiles(files) {
   );
 }
 
-function hasExpectedAppBindings(integrationIds) {
-  return (
-    Array.isArray(integrationIds) &&
-    integrationIds.length === REQUIRED_CHECKS.length &&
-    integrationIds.every((integrationId) => integrationId === INTEGRATION_ID)
+function hasExpectedCheckBindings(checks) {
+  if (!Array.isArray(checks) || checks.length !== REQUIRED_CHECKS.length) return false;
+
+  const expectedBindings = new Set(
+    REQUIRED_CHECKS.map((context) => `${context}\u0000${INTEGRATION_ID}`)
   );
+  const actualBindings = new Set();
+
+  for (const check of checks) {
+    if (
+      !check ||
+      typeof check.context !== 'string' ||
+      !Number.isInteger(check.integrationId) ||
+      !expectedBindings.has(`${check.context}\u0000${check.integrationId}`)
+    ) {
+      return false;
+    }
+    actualBindings.add(`${check.context}\u0000${check.integrationId}`);
+  }
+
+  return actualBindings.size === expectedBindings.size;
+}
+
+function semanticMajor(version) {
+  if (typeof version !== 'string') return null;
+
+  const match = version.match(SEMVER_PATTERN);
+  if (!match) return null;
+
+  const major = Number(version.split('.', 1)[0]);
+  return Number.isSafeInteger(major) ? major : null;
+}
+
+function updatedDependencyVersionReasons(updatedDependencies) {
+  if (!Array.isArray(updatedDependencies) || updatedDependencies.length === 0) {
+    return ['updated dependency versions must be present'];
+  }
+
+  let malformed = false;
+  let preOne = false;
+  for (const dependency of updatedDependencies) {
+    const previousMajor = semanticMajor(dependency?.previousVersion);
+    const newMajor = semanticMajor(dependency?.newVersion);
+
+    if (previousMajor === null || newMajor === null) {
+      malformed = true;
+    } else if (previousMajor === 0 || newMajor === 0) {
+      preOne = true;
+    }
+  }
+
+  return [
+    ...(malformed ? ['updated dependency versions must be valid semantic versions'] : []),
+    ...(preOne ? ['pre-1.0 dependency updates are not eligible'] : []),
+  ];
 }
 
 function evaluatePreflight(input) {
   const reasons = [];
-  const expectedHeadSha = value(input, ['expectedHeadSha', 'approvedHeadSha', 'headSha']);
-  const currentHeadSha = value(input, ['currentHeadSha', 'headSha']);
+  const { expectedHeadSha, currentHeadSha } = input;
 
   if (input.actor !== 'dependabot[bot]') reasons.push('author must be Dependabot');
   if (input.repository !== REPOSITORY) reasons.push('repository does not match this pilot');
@@ -68,9 +111,10 @@ function evaluatePreflight(input) {
   if (input.allowAutoMerge !== true) reasons.push('repository auto-merge must be enabled');
   if (input.rulesetId !== RULESET_ID) reasons.push('required ruleset does not match');
   if (input.rulesetStrict !== true) reasons.push('ruleset must be strict');
-  if (!hasExpectedAppBindings(input.requiredCheckIntegrationIds)) {
-    reasons.push('required checks must be bound to the GitHub Actions App');
+  if (!hasExpectedCheckBindings(input.requiredChecks)) {
+    reasons.push('required check bindings must exactly match the GitHub Actions App ruleset');
   }
+  reasons.push(...updatedDependencyVersionReasons(input.updatedDependencies));
 
   return { candidate: reasons.length === 0, reasons };
 }
@@ -83,7 +127,9 @@ function evaluateAdmission(input) {
   if (input.mergeable !== 'MERGEABLE') reasons.push('pull request must be mergeable');
   if (input.mergeStateStatus !== 'CLEAN') reasons.push('merge state must be clean');
 
-  const successfulChecks = new Set(input.successfulChecks);
+  const successfulChecks = new Set(
+    Array.isArray(input.successfulChecks) ? input.successfulChecks : []
+  );
   if (!REQUIRED_CHECKS.every((check) => successfulChecks.has(check))) {
     reasons.push('required checks have not all succeeded');
   }
@@ -135,11 +181,11 @@ function parseStateIssue(body) {
 }
 
 function evaluateCanary(input) {
-  const expectedHeadSha = value(input, ['expectedHeadSha', 'approvedHeadSha', 'mergeSha']);
-  const workflowHeadSha = value(input, ['workflowHeadSha', 'workflowSha', 'headSha']);
-  const conclusion = value(input, ['conclusion', 'workflowConclusion']);
+  const { mergeSha, workflowHeadSha, conclusion } = input;
 
-  if (workflowHeadSha !== expectedHeadSha) return 'ignore';
+  if (!isSha(mergeSha) || !isSha(workflowHeadSha) || workflowHeadSha !== mergeSha) {
+    return 'ignore';
+  }
   return conclusion === 'success' ? 'clear' : 'pause';
 }
 

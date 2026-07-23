@@ -16,7 +16,8 @@ type AdmissionInput = {
   allowAutoMerge: boolean;
   rulesetId: number;
   rulesetStrict: boolean;
-  requiredCheckIntegrationIds: number[];
+  requiredChecks: Array<{ context: string; integrationId: number }>;
+  updatedDependencies: Array<{ previousVersion: string; newVersion: string }>;
   behindBy: number;
   mergeable: string;
   mergeStateStatus: string;
@@ -26,11 +27,11 @@ type AdmissionInput = {
 };
 
 const headSha = 'a'.repeat(40);
-const requiredChecks = [
-  'lint-and-test (20)',
-  'lint-and-test (22)',
-  'claudelint',
-  'Validate PR Title',
+const requiredCheckBindings = [
+  { context: 'lint-and-test (20)', integrationId: 15368 },
+  { context: 'lint-and-test (22)', integrationId: 15368 },
+  { context: 'claudelint', integrationId: 15368 },
+  { context: 'Validate PR Title', integrationId: 15368 },
 ];
 
 function validInput(): AdmissionInput {
@@ -50,11 +51,12 @@ function validInput(): AdmissionInput {
     allowAutoMerge: true,
     rulesetId: 13514838,
     rulesetStrict: true,
-    requiredCheckIntegrationIds: [15368, 15368, 15368, 15368],
+    requiredChecks: requiredCheckBindings,
+    updatedDependencies: [{ previousVersion: '1.2.3', newVersion: '1.2.4' }],
     behindBy: 0,
     mergeable: 'MERGEABLE',
     mergeStateStatus: 'CLEAN',
-    successfulChecks: requiredChecks,
+    successfulChecks: requiredCheckBindings.map(({ context }) => context),
     openStateIssues: 0,
     armedPullRequests: 0,
   };
@@ -76,7 +78,87 @@ describe('Dependabot auto-merge policy', () => {
     ['conflict', { mergeable: 'CONFLICTING' }, 'mergeable'],
     ['disabled repository auto-merge', { allowAutoMerge: false }, 'repository auto-merge'],
     ['non-strict ruleset', { rulesetStrict: false }, 'strict'],
-    ['wrong App binding', { requiredCheckIntegrationIds: [15368, 15368, 15368, 0] }, 'App'],
+    [
+      'wrong App binding',
+      {
+        requiredChecks: [
+          requiredCheckBindings[0],
+          requiredCheckBindings[1],
+          requiredCheckBindings[2],
+          { context: 'Validate PR Title', integrationId: 0 },
+        ],
+      },
+      'required check bindings',
+    ],
+    [
+      'duplicate required check binding',
+      {
+        requiredChecks: [
+          requiredCheckBindings[0],
+          requiredCheckBindings[1],
+          requiredCheckBindings[2],
+          requiredCheckBindings[2],
+        ],
+      },
+      'required check bindings',
+    ],
+    [
+      'missing required check binding',
+      { requiredChecks: requiredCheckBindings.slice(0, 3) },
+      'required check bindings',
+    ],
+    [
+      'extra required check binding',
+      {
+        requiredChecks: [
+          ...requiredCheckBindings,
+          { context: 'untrusted-check', integrationId: 15368 },
+        ],
+      },
+      'required check bindings',
+    ],
+    [
+      'renamed required check binding',
+      {
+        requiredChecks: [
+          requiredCheckBindings[0],
+          requiredCheckBindings[1],
+          requiredCheckBindings[2],
+          { context: 'Validate title', integrationId: 15368 },
+        ],
+      },
+      'required check bindings',
+    ],
+    [
+      'malformed dependency version',
+      { updatedDependencies: [{ previousVersion: 'not-a-version', newVersion: '1.2.4' }] },
+      'version',
+    ],
+    [
+      'non-semver prerelease dependency version',
+      { updatedDependencies: [{ previousVersion: '1.2.3-01', newVersion: '1.2.4' }] },
+      'version',
+    ],
+    [
+      'pre-1.0 single dependency',
+      { updatedDependencies: [{ previousVersion: '0.9.0', newVersion: '1.0.0' }] },
+      'pre-1.0',
+    ],
+    [
+      'pre-1.0 new dependency version',
+      { updatedDependencies: [{ previousVersion: '1.0.0', newVersion: '0.9.0' }] },
+      'pre-1.0',
+    ],
+    [
+      'pre-1.0 grouped dependency',
+      {
+        updatedDependencies: [
+          { previousVersion: '1.2.3', newVersion: '1.2.4' },
+          { previousVersion: '0.9.0', newVersion: '0.9.1' },
+        ],
+      },
+      'pre-1.0',
+    ],
     ['missing required check', { successfulChecks: ['lint-and-test (20)'] }, 'required checks'],
     ['open state issue', { openStateIssues: 1 }, 'state issue'],
     ['another armed PR', { armedPullRequests: 1 }, 'armed'],
@@ -99,6 +181,21 @@ describe('Dependabot auto-merge policy', () => {
 
     expect(result.eligible).toBe(false);
     expect(result.reasons.join(' ')).toContain(reason);
+  });
+
+  it.each([
+    ['missing expected SHA', { currentHeadSha: headSha }],
+    ['missing current SHA', { expectedHeadSha: headSha }],
+    ['malformed equal SHAs', { expectedHeadSha: 'bad', currentHeadSha: 'bad' }],
+    ['legacy head SHA alias', { headSha }],
+  ])('rejects %s during preflight', (_description, values) => {
+    const input = { ...validInput(), ...values } as Record<string, unknown>;
+    delete input.expectedHeadSha;
+    delete input.currentHeadSha;
+    Object.assign(input, values);
+
+    expect(policy.evaluatePreflight(input).candidate).toBe(false);
+    expect(policy.evaluatePreflight(input).reasons.join(' ')).toContain('head SHA');
   });
 
   it('round-trips a state issue body', () => {
@@ -137,16 +234,20 @@ describe('Dependabot auto-merge policy', () => {
   ])('returns %s canary decision for %s', (conclusion, workflowHeadSha, decision) => {
     expect(
       policy.evaluateCanary({
-        expectedHeadSha: headSha,
+        mergeSha: headSha,
         workflowHeadSha,
         conclusion,
       })
     ).toBe(decision);
   });
 
-  it('ignores a canary without both exact SHA values', () => {
-    expect(policy.evaluateCanary({ conclusion: 'success', workflowHeadSha: headSha })).toBe(
-      'ignore'
-    );
+  it.each([
+    ['missing both SHAs', {}],
+    ['missing merge SHA', { workflowHeadSha: headSha }],
+    ['missing workflow SHA', { mergeSha: headSha }],
+    ['equal malformed SHAs', { mergeSha: 'bad', workflowHeadSha: 'bad' }],
+    ['equal non-SHA strings', { mergeSha: 'not-a-sha', workflowHeadSha: 'not-a-sha' }],
+  ])('ignores canaries with %s', (_description, values) => {
+    expect(policy.evaluateCanary({ conclusion: 'success', ...values })).toBe('ignore');
   });
 });
