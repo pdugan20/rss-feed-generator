@@ -67,10 +67,12 @@ jobs:
           gh api "repos/$GITHUB_REPOSITORY" > "$RUNNER_TEMP/preflight-repository.json"
           gh api "repos/$GITHUB_REPOSITORY/rulesets/13514838" \
             > "$RUNNER_TEMP/preflight-ruleset.json"
+          gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" \
+            > "$RUNNER_TEMP/preflight-main-ref.json"
 
-          BASE_SHA=$(jq -r '.base.sha' "$RUNNER_TEMP/preflight-pull.json")
+          MAIN_SHA=$(jq -r '.object.sha' "$RUNNER_TEMP/preflight-main-ref.json")
           CURRENT_HEAD_SHA=$(jq -r '.head.sha' "$RUNNER_TEMP/preflight-pull.json")
-          gh api "repos/$GITHUB_REPOSITORY/compare/$BASE_SHA...$CURRENT_HEAD_SHA" \
+          gh api "repos/$GITHUB_REPOSITORY/compare/$MAIN_SHA...$CURRENT_HEAD_SHA" \
             > "$RUNNER_TEMP/preflight-comparison.json"
           gh issue list \
             --repo "$GITHUB_REPOSITORY" \
@@ -215,10 +217,12 @@ jobs:
           gh api "repos/$GITHUB_REPOSITORY" > "$RUNNER_TEMP/admission-repository.json"
           gh api "repos/$GITHUB_REPOSITORY/rulesets/13514838" \
             > "$RUNNER_TEMP/admission-ruleset.json"
+          gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" \
+            > "$RUNNER_TEMP/admission-main-ref.json"
 
-          BASE_SHA=$(jq -r '.base.sha' "$RUNNER_TEMP/admission-pull.json")
+          MAIN_SHA=$(jq -r '.object.sha' "$RUNNER_TEMP/admission-main-ref.json")
           CURRENT_HEAD_SHA=$(jq -r '.head.sha' "$RUNNER_TEMP/admission-pull.json")
-          gh api "repos/$GITHUB_REPOSITORY/compare/$BASE_SHA...$CURRENT_HEAD_SHA" \
+          gh api "repos/$GITHUB_REPOSITORY/compare/$MAIN_SHA...$CURRENT_HEAD_SHA" \
             > "$RUNNER_TEMP/admission-comparison.json"
           gh issue list \
             --repo "$GITHUB_REPOSITORY" \
@@ -331,7 +335,7 @@ jobs:
             "$RUNNER_TEMP/admission-result.json" >> "$GITHUB_STEP_SUMMARY"
           echo "eligible=$(jq -r '.eligible == true' "$RUNNER_TEMP/admission-result.json")" \
             >> "$GITHUB_OUTPUT"
-          echo "base-sha=$BASE_SHA" >> "$GITHUB_OUTPUT"
+          echo "base-sha=$MAIN_SHA" >> "$GITHUB_OUTPUT"
 
       - name: Create pilot state issue
         id: state-issue
@@ -413,3 +417,7 @@ jobs:
 
           echo "The exact merge was not observed within 60 seconds; $STATE_ISSUE_URL remains open and the pilot lane is paused." \
             >> "$GITHUB_STEP_SUMMARY"
+          gh issue edit "$STATE_ISSUE_URL" \
+            --repo "$GITHUB_REPOSITORY" \
+            --add-label "rss-automerge-pilot-paused"
+          exit 1

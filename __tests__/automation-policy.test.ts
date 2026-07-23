@@ -34,6 +34,7 @@ type Workflow = {
     string,
     {
       if?: string;
+      permissions?: unknown;
       steps?: Array<{
         id?: string;
         name?: string;
@@ -97,6 +98,10 @@ function validateWorkflowValue(
       validateActionReference(child);
     }
 
+    if (key === 'permissions' && child === 'write-all') {
+      throw new Error('Workflow permissions must not be write-all');
+    }
+
     if (
       !allowWritePermissions &&
       child === 'write' &&
@@ -111,7 +116,24 @@ function validateWorkflowValue(
 
 function validateWorkflowAutomationPolicy(contents: string, path?: string): void {
   const workflow = parse(contents) as unknown;
-  validateWorkflowValue(workflow, path !== undefined && privilegedWorkflowFiles.has(path));
+  const isPrivileged = path !== undefined && privilegedWorkflowFiles.has(path);
+
+  if (isPrivileged && typeof workflow === 'object' && workflow !== null) {
+    const jobs = (workflow as Record<string, unknown>).jobs;
+    if (typeof jobs === 'object' && jobs !== null && !Array.isArray(jobs)) {
+      for (const job of Object.values(jobs as Record<string, unknown>)) {
+        if (
+          typeof job === 'object' &&
+          job !== null &&
+          Object.prototype.hasOwnProperty.call(job, 'permissions')
+        ) {
+          throw new Error('Privileged workflow jobs must not override permissions');
+        }
+      }
+    }
+  }
+
+  validateWorkflowValue(workflow, isPrivileged);
 }
 
 function hasWritePermission(value: unknown, inPermissions = false): boolean {
@@ -122,6 +144,7 @@ function hasWritePermission(value: unknown, inPermissions = false): boolean {
 
   return Object.entries(value as Record<string, unknown>).some(
     ([key, child]) =>
+      (key === 'permissions' && child === 'write-all') ||
       (inPermissions && child === 'write') ||
       hasWritePermission(child, inPermissions || key === 'permissions')
   );
@@ -144,6 +167,8 @@ describe('repository automation policy', () => {
     ],
     ['spaced uses keys', 'jobs:\n  build:\n    steps:\n      - uses : example/action@v1'],
     ['flow-style write permissions', 'jobs:\n  build:\n    permissions: { contents: write }'],
+    ['top-level write-all permissions', 'permissions: write-all\njobs: {}'],
+    ['job-level write-all permissions', 'jobs:\n  build:\n    permissions: write-all'],
   ])('rejects %s', (_description, contents) => {
     expect(() => validateWorkflowAutomationPolicy(contents)).toThrow();
   });
@@ -199,12 +224,49 @@ describe('repository automation policy', () => {
 
     for (const path of [autoMergePilotWorkflow, circuitBreakerWorkflow]) {
       const contents = read(path);
+      const workflow = readWorkflow(path);
 
       expect(() => validateWorkflowAutomationPolicy(contents, path)).not.toThrow();
       expect(() => validateWorkflowAutomationPolicy(contents, `${path}.renamed`)).toThrow(
         'Workflow permission'
       );
+      expect(Object.values(workflow.jobs ?? {}).every((job) => job.permissions === undefined)).toBe(
+        true
+      );
     }
+  });
+
+  it.each([
+    [
+      autoMergePilotWorkflow,
+      `permissions:
+  actions: read
+  checks: read
+  contents: write
+  issues: write
+  pull-requests: write
+jobs:
+  admit:
+    permissions:
+      id-token: write
+`,
+    ],
+    [
+      circuitBreakerWorkflow,
+      `permissions:
+  actions: read
+  contents: read
+  issues: write
+  pull-requests: read
+jobs:
+  evaluate:
+    permissions: write-all
+`,
+    ],
+  ])('rejects job-level permission overrides in privileged workflow %s', (path, contents) => {
+    expect(() => validateWorkflowAutomationPolicy(contents, path)).toThrow(
+      'Privileged workflow jobs must not override permissions'
+    );
   });
 
   it('defines the exact-head Dependabot admission contract', () => {
@@ -219,6 +281,8 @@ describe('repository automation policy', () => {
     const admissionIndex = steps.findIndex((step) => step.id === 'admission');
     const issueIndex = steps.findIndex((step) => step.id === 'state-issue');
     const mergeIndex = steps.findIndex((step) => step.id === 'enable-auto-merge');
+    const preflightRun = steps[preflightIndex]?.run ?? '';
+    const admissionRun = steps[admissionIndex]?.run ?? '';
 
     expect(workflow.on?.pull_request_target?.types).toEqual([
       'opened',
@@ -263,6 +327,21 @@ describe('repository automation policy', () => {
     expect(steps[admissionIndex]?.run).toContain(
       'node scripts/dependabot-automerge-policy.cjs admission'
     );
+    for (const [phase, run] of [
+      ['preflight', preflightRun],
+      ['admission', admissionRun],
+    ]) {
+      expect(run).toContain('gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main"');
+      expect(run).toContain(`> "$RUNNER_TEMP/${phase}-main-ref.json"`);
+      expect(run).toContain(
+        `MAIN_SHA=$(jq -r '.object.sha' "$RUNNER_TEMP/${phase}-main-ref.json")`
+      );
+      expect(run).toContain(
+        'gh api "repos/$GITHUB_REPOSITORY/compare/$MAIN_SHA...$CURRENT_HEAD_SHA"'
+      );
+      expect(run).not.toContain("jq -r '.base.sha'");
+    }
+    expect(admissionRun).toContain('echo "base-sha=$MAIN_SHA" >> "$GITHUB_OUTPUT"');
     expect(steps[issueIndex]?.run).toContain('rss-automerge-pilot-state');
     expect(steps[issueIndex]?.run).toContain('--label "rss-automerge-pilot-state"');
     expect(steps[mergeIndex]?.run).toContain('gh pr merge "$PR_URL"');
@@ -300,6 +379,20 @@ describe('repository automation policy', () => {
     expect(contents).not.toMatch(
       /ref:\s*\$\{\{\s*github\.event\.pull_request\.head(?:\.sha)?\s*\}\}/
     );
+  });
+
+  it('pauses the sentinel and fails visibly when the exact merge is not observed', () => {
+    const workflow = readWorkflow(autoMergePilotWorkflow);
+    const recordMergeRun =
+      workflow.jobs?.admit?.steps?.find((step) => step.name === 'Record the exact merge SHA')
+        ?.run ?? '';
+    const timeoutBlock = recordMergeRun.split(
+      'The exact merge was not observed within 60 seconds'
+    )[1];
+
+    expect(timeoutBlock).toContain('--add-label "rss-automerge-pilot-paused"');
+    expect(timeoutBlock).toContain('exit 1');
+    expect(timeoutBlock).not.toContain('--body');
   });
 
   it('defines an exact-merge-SHA CI circuit breaker', () => {
