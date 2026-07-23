@@ -6,13 +6,51 @@ import { parse } from 'yaml';
 const root = join(__dirname, '..');
 const workflowsDirectory = join(root, '.github', 'workflows');
 const autoMergeWorkflow = join(workflowsDirectory, 'dependabot-auto-merge.yml');
+const autoMergePilotWorkflow = join(workflowsDirectory, 'dependabot-automerge-pilot.yml');
+const circuitBreakerWorkflow = join(workflowsDirectory, 'dependabot-automerge-circuit-breaker.yml');
+const privilegedWorkflowFiles = new Set([autoMergePilotWorkflow, circuitBreakerWorkflow]);
 const ciWorkflow = join(workflowsDirectory, 'ci.yml');
 const prLintWorkflow = join(workflowsDirectory, 'pr-lint.yml');
 const dependabotConfig = join(root, '.github', 'dependabot.yml');
 const packageManifest = join(root, 'package.json');
 
+type Workflow = {
+  on?: {
+    pull_request_target?: {
+      types?: string[];
+    };
+    workflow_run?: {
+      workflows?: string[];
+      types?: string[];
+      branches?: string[];
+    };
+  };
+  permissions?: Record<string, string>;
+  concurrency?: {
+    group?: string;
+    'cancel-in-progress'?: boolean;
+  };
+  jobs?: Record<
+    string,
+    {
+      if?: string;
+      steps?: Array<{
+        id?: string;
+        name?: string;
+        uses?: string;
+        run?: string;
+        with?: Record<string, unknown>;
+      }>;
+    }
+  >;
+};
+
 function read(path: string): string {
   return readFileSync(path, 'utf8');
+}
+
+function readWorkflow(path: string): Workflow {
+  return parse(read(path)) as Workflow;
 }
 
 function trackedWorkflowFiles(): string[] {
@@ -39,9 +77,15 @@ function validateActionReference(reference: string): void {
   }
 }
 
-function validateWorkflowValue(value: unknown): void {
+function validateWorkflowValue(
+  value: unknown,
+  allowWritePermissions = false,
+  inPermissions = false
+): void {
   if (Array.isArray(value)) {
-    for (const item of value) validateWorkflowValue(item);
+    for (const item of value) {
+      validateWorkflowValue(item, allowWritePermissions, inPermissions);
+    }
     return;
   }
 
@@ -53,17 +97,34 @@ function validateWorkflowValue(value: unknown): void {
       validateActionReference(child);
     }
 
-    if ((key === 'contents' || key === 'pull-requests') && child === 'write') {
+    if (
+      !allowWritePermissions &&
+      child === 'write' &&
+      (inPermissions || key === 'contents' || key === 'pull-requests')
+    ) {
       throw new Error(`Workflow permission ${key} must not be write`);
     }
 
-    validateWorkflowValue(child);
+    validateWorkflowValue(child, allowWritePermissions, inPermissions || key === 'permissions');
   }
 }
 
-function validateWorkflowAutomationPolicy(contents: string): void {
+function validateWorkflowAutomationPolicy(contents: string, path?: string): void {
   const workflow = parse(contents) as unknown;
-  validateWorkflowValue(workflow);
+  validateWorkflowValue(workflow, path !== undefined && privilegedWorkflowFiles.has(path));
+}
+
+function hasWritePermission(value: unknown, inPermissions = false): boolean {
+  if (Array.isArray(value)) {
+    return value.some((item) => hasWritePermission(item, inPermissions));
+  }
+  if (typeof value !== 'object' || value === null) return false;
+
+  return Object.entries(value as Record<string, unknown>).some(
+    ([key, child]) =>
+      (inPermissions && child === 'write') ||
+      hasWritePermission(child, inPermissions || key === 'permissions')
+  );
 }
 
 const exactSemverPattern =
@@ -111,15 +172,181 @@ describe('repository automation policy', () => {
     expect(existsSync(autoMergeWorkflow)).toBe(false);
   });
 
-  it('keeps every tracked workflow read-only and pins every external action by SHA', () => {
-    for (const workflow of trackedWorkflowFiles()) {
+  it('keeps every ordinary tracked workflow read-only and pins every external action by SHA', () => {
+    for (const workflow of trackedWorkflowFiles().filter(
+      (path) => !privilegedWorkflowFiles.has(path)
+    )) {
       const contents = read(workflow);
 
       expect(contents).not.toMatch(/gh\s+pr\s+merge\s+--auto/);
       expect(contents).not.toMatch(/@latest\b/);
 
-      validateWorkflowAutomationPolicy(contents);
+      validateWorkflowAutomationPolicy(contents, workflow);
     }
+  });
+
+  it('limits write permissions to the two exact privileged workflow filenames', () => {
+    const workflowFiles = Array.from(
+      new Set([...trackedWorkflowFiles(), autoMergePilotWorkflow, circuitBreakerWorkflow])
+    );
+    const writeEnabledFiles = workflowFiles.filter((path) =>
+      hasWritePermission(parse(read(path)) as unknown)
+    );
+
+    expect(writeEnabledFiles.sort()).toEqual(
+      [autoMergePilotWorkflow, circuitBreakerWorkflow].sort()
+    );
+
+    for (const path of [autoMergePilotWorkflow, circuitBreakerWorkflow]) {
+      const contents = read(path);
+
+      expect(() => validateWorkflowAutomationPolicy(contents, path)).not.toThrow();
+      expect(() => validateWorkflowAutomationPolicy(contents, `${path}.renamed`)).toThrow(
+        'Workflow permission'
+      );
+    }
+  });
+
+  it('defines the exact-head Dependabot admission contract', () => {
+    const workflow = readWorkflow(autoMergePilotWorkflow);
+    const job = workflow.jobs?.admit;
+    const steps = job?.steps ?? [];
+    const contents = read(autoMergePilotWorkflow);
+    const checkout = steps.find((step) => step.uses?.startsWith('actions/checkout@'));
+    const metadata = steps.find((step) => step.uses?.startsWith('dependabot/fetch-metadata@'));
+    const preflightIndex = steps.findIndex((step) => step.id === 'preflight');
+    const waitIndex = steps.findIndex((step) => step.id === 'required-checks');
+    const admissionIndex = steps.findIndex((step) => step.id === 'admission');
+    const issueIndex = steps.findIndex((step) => step.id === 'state-issue');
+    const mergeIndex = steps.findIndex((step) => step.id === 'enable-auto-merge');
+
+    expect(workflow.on?.pull_request_target?.types).toEqual([
+      'opened',
+      'reopened',
+      'synchronize',
+      'ready_for_review',
+    ]);
+    expect(workflow.permissions).toEqual({
+      actions: 'read',
+      checks: 'read',
+      contents: 'write',
+      issues: 'write',
+      'pull-requests': 'write',
+    });
+    expect(workflow.concurrency).toEqual({
+      group: 'rss-dependabot-automerge-pilot',
+      'cancel-in-progress': false,
+    });
+    expect(job?.if).toContain("github.event.pull_request.user.login == 'dependabot[bot]'");
+    expect(job?.if).toContain('github.event.pull_request.head.repo.full_name == github.repository');
+    expect(job?.if).toContain("github.event.pull_request.base.ref == 'main'");
+    expect(job?.if).toContain('github.event.pull_request.draft == false');
+    expect(checkout?.with).toEqual({
+      ref: '${{ github.event.pull_request.base.sha }}',
+      'persist-credentials': false,
+    });
+    expect(metadata?.uses).toBe(
+      'dependabot/fetch-metadata@25dd0e34f4fe68f24cc83900b1fe3fe149efef98'
+    );
+
+    expect(preflightIndex).toBeGreaterThan(-1);
+    expect(waitIndex).toBeGreaterThan(preflightIndex);
+    expect(admissionIndex).toBeGreaterThan(waitIndex);
+    expect(issueIndex).toBeGreaterThan(admissionIndex);
+    expect(mergeIndex).toBeGreaterThan(issueIndex);
+    expect(steps[preflightIndex]?.run).toContain(
+      'node scripts/dependabot-automerge-policy.cjs preflight'
+    );
+    expect(steps[waitIndex]?.run).toContain(
+      'gh pr checks "$PR_URL" --repo "$GITHUB_REPOSITORY" --required --watch --fail-fast'
+    );
+    expect(steps[admissionIndex]?.run).toContain(
+      'node scripts/dependabot-automerge-policy.cjs admission'
+    );
+    expect(steps[issueIndex]?.run).toContain('rss-automerge-pilot-state');
+    expect(steps[issueIndex]?.run).toContain('--label "rss-automerge-pilot-state"');
+    expect(steps[mergeIndex]?.run).toContain('gh pr merge "$PR_URL"');
+    expect(steps[mergeIndex]?.run).toContain('--match-head-commit "$EXPECTED_HEAD_SHA"');
+    expect(contents.match(/gh issue list/g)).toHaveLength(2);
+    expect(contents.match(/--label "rss-automerge-pilot-state"/g)).toHaveLength(3);
+
+    for (const inputName of [
+      'expectedHeadSha',
+      'currentHeadSha',
+      'updatedDependencies',
+      'rulesetId',
+      'rulesetStrict',
+      'requiredChecks',
+      'successfulChecks',
+      'openStateIssues',
+      'armedPullRequests',
+    ]) {
+      expect(contents).toContain(`${inputName}:`);
+    }
+    for (const context of [
+      'lint-and-test (20)',
+      'lint-and-test (22)',
+      'claudelint',
+      'Validate PR Title',
+    ]) {
+      expect(contents).toContain(context);
+    }
+    expect(contents).toContain('integrationId: 15368');
+    expect(contents).toContain('prevVersion');
+    expect(contents).toContain('newVersion');
+    expect(contents).toContain('GITHUB_STEP_SUMMARY');
+    expect(contents).not.toContain('--admin');
+    expect(contents).not.toContain('secrets.');
+    expect(contents).not.toMatch(
+      /ref:\s*\$\{\{\s*github\.event\.pull_request\.head(?:\.sha)?\s*\}\}/
+    );
+  });
+
+  it('defines an exact-merge-SHA CI circuit breaker', () => {
+    const workflow = readWorkflow(circuitBreakerWorkflow);
+    const job = workflow.jobs?.evaluate;
+    const steps = job?.steps ?? [];
+    const contents = read(circuitBreakerWorkflow);
+    const checkout = steps.find((step) => step.uses?.startsWith('actions/checkout@'));
+    const evaluateStep = steps.find((step) => step.id === 'evaluate-canaries');
+
+    expect(workflow.on?.workflow_run).toEqual({
+      workflows: ['CI'],
+      types: ['completed'],
+      branches: ['main'],
+    });
+    expect(workflow.permissions).toEqual({
+      actions: 'read',
+      contents: 'read',
+      issues: 'write',
+      'pull-requests': 'read',
+    });
+    expect(workflow.concurrency).toEqual({
+      group: 'rss-dependabot-automerge-pilot',
+      'cancel-in-progress': false,
+    });
+    expect(job?.if).toContain("github.event.workflow_run.event == 'push'");
+    expect(job?.if).toContain("github.event.workflow_run.head_branch == 'main'");
+    expect(checkout?.with).toEqual({
+      ref: '${{ github.event.workflow_run.head_sha }}',
+      'persist-credentials': false,
+    });
+    expect(evaluateStep?.run).toContain('rss-automerge-pilot-state');
+    expect(evaluateStep?.run).toContain('parseStateIssue');
+    expect(evaluateStep?.run).toContain('node scripts/dependabot-automerge-policy.cjs state-body');
+    expect(evaluateStep?.run).toContain('node scripts/dependabot-automerge-policy.cjs canary');
+    expect(evaluateStep?.run).toContain('gh issue list');
+    expect(evaluateStep?.run).toContain('--label "rss-automerge-pilot-state"');
+    expect(evaluateStep?.run).toMatch(
+      /pause\)[\s\S]*--add-label "rss-automerge-pilot-paused"[\s\S]*gh issue comment/
+    );
+    expect(contents).toContain('github.event.workflow_run.head_sha');
+    expect(contents).toContain('github.event.workflow_run.conclusion');
+    expect(evaluateStep?.run).toMatch(
+      /case "\$DECISION" in[\s\S]*clear\)[\s\S]*gh issue close[\s\S]*pause\)[\s\S]*gh issue comment/
+    );
+    expect(evaluateStep?.run).not.toMatch(/pause\)[\s\S]*gh issue close/);
+    expect(contents).not.toContain('github.event.pull_request.head');
   });
 
   it('uses least privilege and immutable actions in CI without changing check names', () => {

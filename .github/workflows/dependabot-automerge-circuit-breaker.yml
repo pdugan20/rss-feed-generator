@@ -1,0 +1,110 @@
+name: Dependabot Auto-merge Circuit Breaker
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  actions: read
+  contents: read
+  issues: write
+  pull-requests: read
+
+concurrency:
+  group: rss-dependabot-automerge-pilot
+  cancel-in-progress: false
+
+jobs:
+  evaluate:
+    if: >-
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main'
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      WORKFLOW_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+      WORKFLOW_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.event.workflow_run.id }}
+
+    steps:
+      - name: Check out the exact trusted CI commit
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          persist-credentials: false
+
+      - name: Evaluate open pilot canaries
+        id: evaluate-canaries
+        run: |
+          set -euo pipefail
+
+          gh issue list \
+            --repo "$GITHUB_REPOSITORY" \
+            --state open \
+            --label "rss-automerge-pilot-state" \
+            --limit 1000 \
+            --json body,url \
+            > "$RUNNER_TEMP/state-issues.json"
+
+          jq -c '.[]' "$RUNNER_TEMP/state-issues.json" |
+            while IFS= read -r ISSUE; do
+              ISSUE_URL=$(jq -r '.url' <<< "$ISSUE")
+              ISSUE_BODY=$(jq -r '.body' <<< "$ISSUE")
+              STATE=$(POLICY_PATH="$GITHUB_WORKSPACE/scripts/dependabot-automerge-policy.cjs" \
+                node -e '
+                  const fs = require("node:fs");
+                  const policy = require(process.env.POLICY_PATH);
+                  const state = policy.parseStateIssue(fs.readFileSync(0, "utf8"));
+                  process.stdout.write(JSON.stringify(state));
+                ' <<< "$ISSUE_BODY")
+
+              if [[ "$STATE" == "null" ]]; then
+                continue
+              fi
+
+              # Ask the Task 1 CLI to validate and canonicalize every parsed state body.
+              CANONICAL_STATE_BODY=$(node scripts/dependabot-automerge-policy.cjs state-body \
+                <<< "$STATE")
+              MERGE_SHA=$(jq -r '.body' <<< "$CANONICAL_STATE_BODY" |
+                POLICY_PATH="$GITHUB_WORKSPACE/scripts/dependabot-automerge-policy.cjs" \
+                node -e '
+                  const fs = require("node:fs");
+                  const policy = require(process.env.POLICY_PATH);
+                  const state = policy.parseStateIssue(fs.readFileSync(0, "utf8"));
+                  process.stdout.write(state.mergeSha);
+                ')
+              DECISION=$(jq -n \
+                --arg mergeSha "$MERGE_SHA" \
+                --arg workflowHeadSha "$WORKFLOW_HEAD_SHA" \
+                --arg conclusion "$WORKFLOW_CONCLUSION" \
+                '{
+                  mergeSha: $mergeSha,
+                  workflowHeadSha: $workflowHeadSha,
+                  conclusion: $conclusion
+                }' |
+                node scripts/dependabot-automerge-policy.cjs canary |
+                jq -r '.decision')
+
+              case "$DECISION" in
+                clear)
+                  gh issue comment "$ISSUE_URL" \
+                    --repo "$GITHUB_REPOSITORY" \
+                    --body "Canary cleared by successful CI run: $RUN_URL"
+                  gh issue close "$ISSUE_URL" \
+                    --repo "$GITHUB_REPOSITORY" \
+                    --reason completed
+                  ;;
+                pause)
+                  gh issue edit "$ISSUE_URL" \
+                    --repo "$GITHUB_REPOSITORY" \
+                    --add-label "rss-automerge-pilot-paused"
+                  gh issue comment "$ISSUE_URL" \
+                    --repo "$GITHUB_REPOSITORY" \
+                    --body "Canary paused after CI concluded \`$WORKFLOW_CONCLUSION\`: $RUN_URL"
+                  ;;
+                ignore)
+                  ;;
+              esac
+            done
