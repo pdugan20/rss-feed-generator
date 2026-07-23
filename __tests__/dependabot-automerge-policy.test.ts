@@ -183,6 +183,29 @@ describe('Dependabot auto-merge policy', () => {
     expect(result.reasons.join(' ')).toContain(reason);
   });
 
+  it('admits a lockfile-only dependency patch', () => {
+    expect(policy.evaluateAdmission({ ...validInput(), files: ['package-lock.json'] })).toEqual({
+      eligible: true,
+      reasons: [],
+    });
+  });
+
+  it.each([
+    ['empty', []],
+    ['manifest-only', ['package.json']],
+    ['extra path', ['package-lock.json', 'README.md']],
+    ['duplicate lockfile', ['package-lock.json', 'package-lock.json']],
+    ['non-array', 'package-lock.json'],
+  ])('rejects %s changed files', (_description, files) => {
+    const result = policy.evaluateAdmission({
+      ...validInput(),
+      files,
+    } as unknown as AdmissionInput);
+
+    expect(result.eligible).toBe(false);
+    expect(result.reasons.join(' ')).toContain('files');
+  });
+
   it.each([
     ['missing expected SHA', { currentHeadSha: headSha }],
     ['missing current SHA', { expectedHeadSha: headSha }],

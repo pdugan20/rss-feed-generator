@@ -25,8 +25,11 @@ function isSha(value) {
 function hasExpectedFiles(files) {
   return (
     Array.isArray(files) &&
-    files.length === ALLOWED_FILES.length &&
-    ALLOWED_FILES.every((file) => files.includes(file))
+    files.length > 0 &&
+    files.length <= ALLOWED_FILES.length &&
+    new Set(files).size === files.length &&
+    files.includes('package-lock.json') &&
+    files.every((file) => ALLOWED_FILES.includes(file))
   );
 }
 
@@ -106,7 +109,7 @@ function evaluatePreflight(input) {
   if (input.directory !== '/') reasons.push('directory must be /');
   if (input.maintainerChanges !== false) reasons.push('maintainer changes are not allowed');
   if (!hasExpectedFiles(input.files)) {
-    reasons.push('files must be exactly package.json and package-lock.json');
+    reasons.push('files must include package-lock.json and only package.json or package-lock.json');
   }
   if (input.allowAutoMerge !== true) reasons.push('repository auto-merge must be enabled');
   if (input.rulesetId !== RULESET_ID) reasons.push('required ruleset does not match');
