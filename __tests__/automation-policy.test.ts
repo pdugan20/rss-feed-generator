@@ -574,7 +574,10 @@ jobs:
     const contents = read(ciWorkflow);
 
     expect(contents).toMatch(/^permissions:\n\s+contents:\s+read\s*$/m);
-    expect(contents).toContain('actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6');
+    expect(contents.match(/actions\/checkout@[^\r\n]+/g)).toEqual([
+      'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1',
+      'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1',
+    ]);
     expect(contents).toContain('actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7');
     expect(contents).toMatch(/lint-and-test:[\s\S]*node-version: \[20, 22\]/);
     expect(contents).toMatch(/^\s{2}claudelint:\s*$/m);
