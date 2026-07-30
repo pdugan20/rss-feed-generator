@@ -5,3 +5,4 @@ coverage
 *.log
 .env
 package-lock.json
+.agents/skills/

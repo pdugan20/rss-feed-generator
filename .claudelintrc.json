@@ -1,0 +1,10 @@
+{
+  "overrides": [
+    {
+      "files": ["**/.claude/skills/use-railway/SKILL.md"],
+      "rules": {
+        "skill-xml-tags-anywhere": "off"
+      }
+    }
+  ]
+}
