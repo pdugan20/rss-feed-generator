@@ -1,7 +1,7 @@
-# RSS Feed Generator
+# rss-feed-generator
 
-[![CI](https://github.com/pdugan20/rss-feed-generator/workflows/CI/badge.svg)](https://github.com/pdugan20/rss-feed-generator/actions)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow?logo=opensourceinitiative&logoColor=white)](https://opensource.org/licenses/MIT)
+[![CI](https://github.com/pdugan20/rss-feed-generator/actions/workflows/ci.yml/badge.svg?branch=main&event=push)](https://github.com/pdugan20/rss-feed-generator/actions/workflows/ci.yml)
+[![License](https://img.shields.io/github/license/pdugan20/rss-feed-generator)](LICENSE)
 
 A secure, whitelisted feed generator with pluggable per-site extractors and automatic daily updates. Outputs RSS 2.0, Atom 1.0, and JSON Feed 1.0 — including Media RSS extensions for photo feeds — with 3-tier caching and ETag/304 support for efficient polling.
 
