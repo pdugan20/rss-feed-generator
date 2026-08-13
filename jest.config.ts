@@ -1,7 +1,9 @@
 import type { Config } from 'jest';
 
 const config: Config = {
-  preset: 'ts-jest',
+  transform: {
+    '^.+\\.tsx?$': ['ts-jest', { diagnostics: { ignoreCodes: [151002] } }],
+  },
   testEnvironment: 'node',
   coverageDirectory: 'coverage',
   collectCoverageFrom: ['lib/**/*.ts', 'server.ts', '!**/node_modules/**'],
