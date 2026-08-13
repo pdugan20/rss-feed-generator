@@ -508,7 +508,7 @@ jobs:
     expect(lintJob?.permissions).toEqual({ contents: 'read' });
     expect(claudeJob?.permissions).toEqual({ contents: 'read' });
     expect(finalizeJob?.permissions).toEqual({ contents: 'read', issues: 'write' });
-    expect(lintJob?.strategy?.matrix?.['node-version']).toEqual([20, 22]);
+    expect(lintJob?.strategy?.matrix?.['node-version']).toEqual([22]);
     expect(lintCheckout?.with).toEqual({
       ref: '${{ github.event.client_payload.merge_sha }}',
       'persist-credentials': false,
@@ -579,7 +579,7 @@ jobs:
       'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1',
     ]);
     expect(contents).toContain('actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7');
-    expect(contents).toMatch(/lint-and-test:[\s\S]*node-version: \[20, 22\]/);
+    expect(contents).toMatch(/lint-and-test:[\s\S]*node-version: \[22\]/);
     expect(contents).toMatch(/^\s{2}claudelint:\s*$/m);
     expect(contents).toMatch(/claudelint:[\s\S]*run: npm ci/);
     expect(contents).toMatch(/claudelint:[\s\S]*run: npm run test:automation-policy/);
