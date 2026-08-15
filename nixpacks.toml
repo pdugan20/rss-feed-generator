@@ -1,5 +1,6 @@
 [phases.setup]
-nixPkgs = ["nodejs_20", "libuuid", "chromium"]
+nixPkgs = ["nodejs_24", "libuuid", "chromium"]
+nixpkgsArchive = "9259541b1652dae633707ff840858fd397df66bc"
 aptPkgs = ["fonts-liberation"]
 
 [variables]
