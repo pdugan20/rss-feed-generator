@@ -7,7 +7,9 @@ updates:
       day: 'wednesday'
       time: '06:00'
       timezone: 'America/Los_Angeles'
-    open-pull-requests-limit: 2
+    # Renovate owns routine versions. A zero version limit preserves
+    # Dependabot security updates while preventing a second routine queue.
+    open-pull-requests-limit: 0
     commit-message:
       # Type must be a single word (no hyphens) for the conventional-commits
       # parser used by PR Lint. `include: scope` adds `(deps)` / `(deps-dev)`
@@ -21,10 +23,6 @@ updates:
       - 'pdugan20'
     reviewers:
       - 'pdugan20'
-    # Skip major-version bumps — they regularly break CI and need a human.
-    ignore:
-      - dependency-name: '*'
-        update-types: ['version-update:semver-major']
     groups:
       prettier:
         dependency-type: 'development'
@@ -51,7 +49,7 @@ updates:
       day: 'wednesday'
       time: '06:30'
       timezone: 'America/Los_Angeles'
-    open-pull-requests-limit: 1
+    open-pull-requests-limit: 0
     commit-message:
       prefix: 'ci'
     labels:
