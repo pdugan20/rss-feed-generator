@@ -1,5 +1,5 @@
 import fs from 'fs';
-import puppeteer, { Browser } from 'puppeteer';
+import type { Browser } from 'puppeteer' with { 'resolution-mode': 'import' };
 import * as cheerio from 'cheerio';
 import { getExtractor } from './extract';
 import articleStore from './article-store';
@@ -29,6 +29,9 @@ class Scraper {
 
   async initBrowser(): Promise<Browser> {
     if (!this.browser) {
+      // Puppeteer 25 is ESM-only. Keep this CommonJS service compatible by
+      // loading it through Node's native dynamic import boundary.
+      const { default: puppeteer } = await import('puppeteer');
       const executablePath = process.env.PUPPETEER_EXECUTABLE_PATH || findSystemChromium();
 
       this.browser = await puppeteer.launch({
