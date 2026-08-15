@@ -15,6 +15,7 @@ describe('deployment runtime contract', () => {
     expect(packageManifest.engines?.node).toBe('>=24.19.0 <25');
     expect(nixpacks).toContain('"nodejs_24"');
     expect(nixpacks).toContain('nixpkgsArchive = "9259541b1652dae633707ff840858fd397df66bc"');
+    expect(nixpacks).toContain('cmds = ["PUPPETEER_SKIP_DOWNLOAD=true npm ci"]');
     expect(nixpacks).not.toMatch(/"nodejs_(?:1[0-9]|2[0-35-9])"/);
   });
 });
