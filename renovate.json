@@ -1,0 +1,92 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "enabled": false,
+  "extends": ["config:recommended"],
+  "enabledManagers": ["npm", "github-actions"],
+  "semanticCommits": "enabled",
+  "semanticCommitType": "chore",
+  "semanticCommitScope": "deps",
+  "timezone": "America/Los_Angeles",
+  "dependencyDashboard": true,
+  "dependencyDashboardAutoclose": true,
+  "labels": ["dependencies"],
+  "branchConcurrentLimit": 2,
+  "prConcurrentLimit": 2,
+  "prHourlyLimit": 1,
+  "rebaseWhen": "behind-base-branch",
+  "platformAutomerge": true,
+  "automergeType": "pr",
+  "automergeStrategy": "squash",
+  "internalChecksFilter": "strict",
+  "vulnerabilityAlerts": {
+    "enabled": false
+  },
+  "lockFileMaintenance": {
+    "enabled": true,
+    "schedule": ["before 6am on monday"],
+    "dependencyDashboardApproval": true,
+    "automerge": false
+  },
+  "packageRules": [
+    {
+      "description": "Default every enabled manager to dashboard approval",
+      "matchManagers": ["npm", "github-actions"],
+      "dependencyDashboardApproval": true,
+      "automerge": false
+    },
+    {
+      "description": "Stable npm runtime patches preserve the proven legacy envelope",
+      "matchManagers": ["npm"],
+      "matchDepTypes": ["dependencies", "optionalDependencies"],
+      "matchCurrentVersion": "/^[1-9]\\d*\\.\\d+\\.\\d+$/",
+      "matchUpdateTypes": ["patch", "digest", "pin", "pinDigest"],
+      "matchNewValue": "!/-/",
+      "minimumReleaseAge": "7 days",
+      "dependencyDashboardApproval": false,
+      "automerge": true
+    },
+    {
+      "description": "Stable npm development non-major updates",
+      "matchManagers": ["npm"],
+      "matchDepTypes": ["devDependencies"],
+      "matchCurrentVersion": "/^[1-9]\\d*\\.\\d+\\.\\d+$/",
+      "matchUpdateTypes": ["patch", "minor", "digest", "pin", "pinDigest"],
+      "matchNewValue": "!/-/",
+      "matchPackageNames": ["!claude-code-lint", "!prettier", "!yaml"],
+      "groupName": "development dependencies",
+      "minimumReleaseAge": "7 days",
+      "dependencyDashboardApproval": false,
+      "automerge": true
+    },
+    {
+      "description": "Exact automation-policy tools require exception handling",
+      "matchManagers": ["npm"],
+      "matchDepTypes": ["devDependencies"],
+      "matchPackageNames": ["claude-code-lint", "prettier", "yaml"],
+      "dependencyDashboardApproval": true,
+      "automerge": false
+    },
+    {
+      "description": "GitHub Actions updates require fixture-aware review",
+      "matchManagers": ["github-actions"],
+      "matchUpdateTypes": ["patch", "minor", "digest", "pin", "pinDigest"],
+      "groupName": "github actions",
+      "minimumReleaseAge": "14 days",
+      "dependencyDashboardApproval": true,
+      "automerge": false
+    },
+    {
+      "description": "Pre-1.0 minor updates require exception handling",
+      "matchCurrentVersion": "/^0\\./",
+      "matchUpdateTypes": ["minor", "major"],
+      "dependencyDashboardApproval": true,
+      "automerge": false
+    },
+    {
+      "description": "All major updates require exception handling",
+      "matchUpdateTypes": ["major"],
+      "dependencyDashboardApproval": true,
+      "automerge": false
+    }
+  ]
+}
