@@ -1,13 +1,16 @@
 # RSS Feed Generator
 
-## Work modes
-
-- Default to exploration for design iterations, prototypes, and small changes. Make focused edits directly; do not require a formal spec, separate plan, worktree, or TDD.
-- Apply production rigor when the user explicitly asks to ship, harden, prepare a release, or use strict TDD. Match verification to risk and obey any stronger test requirements below.
-- Ask before deployments, production-data changes, live service mutations, schema migrations, or security-rule changes.
-
 Secure, whitelisted RSS feed generator with pluggable per-site extractors and
 automatic daily updates. TypeScript/Fastify backend deployed on Railway.
+
+## Code Review Rules
+
+- Flag any fetch path that bypasses the `lib/feeds.ts` allowlist, permits arbitrary URLs
+  or redirect targets, or can reach local/private network resources through the scraper.
+- Flag `/refresh` or scheduled mutation paths that lack the intended API-key check,
+  bounded concurrency, timeouts, or retry-safe cache writes.
+- Flag a new feed that bypasses the documented registry/test file set or renders upstream
+  HTML and URLs without validation and safe feed encoding.
 
 ## Common Commands
 
