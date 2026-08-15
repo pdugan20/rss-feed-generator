@@ -12,6 +12,7 @@ const privilegedWorkflowFiles = new Set([autoMergePilotWorkflow, circuitBreakerW
 const ciWorkflow = join(workflowsDirectory, 'ci.yml');
 const prLintWorkflow = join(workflowsDirectory, 'pr-lint.yml');
 const dependabotConfig = join(root, '.github', 'dependabot.yml');
+const renovateConfig = join(root, 'renovate.json');
 const packageManifest = join(root, 'package.json');
 
 type Workflow = {
@@ -437,12 +438,7 @@ jobs:
     ]) {
       expect(contents).toContain(`${inputName}:`);
     }
-    for (const context of [
-      'lint-and-test (20)',
-      'lint-and-test (22)',
-      'claudelint',
-      'Validate PR Title',
-    ]) {
+    for (const context of ['lint-and-test (24)', 'claudelint', 'Validate PR Title']) {
       expect(contents).toContain(context);
     }
     expect(contents).toContain('integrationId: 15368');
@@ -637,6 +633,116 @@ jobs:
     expect(Object.keys(npmGroups ?? {}).indexOf('prettier')).toBeLessThan(
       Object.keys(npmGroups ?? {}).indexOf('dev-dependencies')
     );
+  });
+
+  it('keeps the checked Renovate bootstrap inert and fail-closed', () => {
+    const config = JSON.parse(read(renovateConfig)) as {
+      enabled?: boolean;
+      enabledManagers?: string[];
+      platformAutomerge?: boolean;
+      automergeType?: string;
+      automergeStrategy?: string;
+      internalChecksFilter?: string;
+      vulnerabilityAlerts?: { enabled?: boolean };
+      lockFileMaintenance?: {
+        enabled?: boolean;
+        dependencyDashboardApproval?: boolean;
+        automerge?: boolean;
+      };
+      packageRules?: Array<{
+        description?: string;
+        matchManagers?: string[];
+        matchDepTypes?: string[];
+        matchCurrentVersion?: string;
+        matchNewValue?: string;
+        matchUpdateTypes?: string[];
+        matchPackageNames?: string[];
+        minimumReleaseAge?: string;
+        dependencyDashboardApproval?: boolean;
+        automerge?: boolean;
+      }>;
+    };
+
+    expect(config.enabled).toBe(false);
+    expect(config.enabledManagers).toEqual(['npm', 'github-actions']);
+    expect(config.platformAutomerge).toBe(true);
+    expect(config.automergeType).toBe('pr');
+    expect(config.automergeStrategy).toBe('squash');
+    expect(config.internalChecksFilter).toBe('strict');
+    expect(config.vulnerabilityAlerts).toEqual({ enabled: false });
+    expect(config.lockFileMaintenance).toMatchObject({
+      enabled: true,
+      dependencyDashboardApproval: true,
+      automerge: false,
+    });
+
+    const rules = config.packageRules ?? [];
+    expect(rules[0]).toEqual({
+      description: 'Default every enabled manager to dashboard approval',
+      matchManagers: ['npm', 'github-actions'],
+      dependencyDashboardApproval: true,
+      automerge: false,
+    });
+
+    const runtime = rules.find((rule) =>
+      rule.description?.startsWith('Stable npm runtime patches')
+    );
+    expect(runtime).toMatchObject({
+      matchManagers: ['npm'],
+      matchDepTypes: ['dependencies', 'optionalDependencies'],
+      matchCurrentVersion: '/^[1-9]\\d*\\.\\d+\\.\\d+$/',
+      matchUpdateTypes: ['patch', 'digest', 'pin', 'pinDigest'],
+      matchNewValue: '!/-/',
+      minimumReleaseAge: '7 days',
+      dependencyDashboardApproval: false,
+      automerge: true,
+    });
+
+    const development = rules.find(
+      (rule) => rule.description === 'Stable npm development non-major updates'
+    );
+    expect(development).toMatchObject({
+      matchManagers: ['npm'],
+      matchDepTypes: ['devDependencies'],
+      matchCurrentVersion: '/^[1-9]\\d*\\.\\d+\\.\\d+$/',
+      matchUpdateTypes: ['patch', 'minor', 'digest', 'pin', 'pinDigest'],
+      matchNewValue: '!/-/',
+      matchPackageNames: ['!claude-code-lint', '!prettier', '!yaml'],
+      minimumReleaseAge: '7 days',
+      dependencyDashboardApproval: false,
+      automerge: true,
+    });
+
+    const exactPolicyTools = rules.find((rule) =>
+      rule.description?.startsWith('Exact automation-policy tools')
+    );
+    expect(exactPolicyTools).toMatchObject({
+      matchManagers: ['npm'],
+      matchDepTypes: ['devDependencies'],
+      matchPackageNames: ['claude-code-lint', 'prettier', 'yaml'],
+      dependencyDashboardApproval: true,
+      automerge: false,
+    });
+
+    const actions = rules.find(
+      (rule) => rule.description === 'GitHub Actions updates require fixture-aware review'
+    );
+    expect(actions).toMatchObject({
+      matchManagers: ['github-actions'],
+      matchUpdateTypes: ['patch', 'minor', 'digest', 'pin', 'pinDigest'],
+      minimumReleaseAge: '14 days',
+      dependencyDashboardApproval: true,
+      automerge: false,
+    });
+
+    const majors = rules.find(
+      (rule) => rule.description === 'All major updates require exception handling'
+    );
+    expect(majors).toMatchObject({
+      matchUpdateTypes: ['major'],
+      dependencyDashboardApproval: true,
+      automerge: false,
+    });
   });
 
   it.each(['2.8.2', '2.9.0', '3.0.0-rc.1', '2.9.0+policy.1'])(

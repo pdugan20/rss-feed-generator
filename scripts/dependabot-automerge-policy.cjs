@@ -6,12 +6,7 @@ const REPOSITORY = 'pdugan20/rss-feed-generator';
 const BASE_BRANCH = 'main';
 const RULESET_ID = 13514838;
 const INTEGRATION_ID = 15368;
-const REQUIRED_CHECKS = Object.freeze([
-  'lint-and-test (20)',
-  'lint-and-test (22)',
-  'claudelint',
-  'Validate PR Title',
-]);
+const REQUIRED_CHECKS = Object.freeze(['lint-and-test (24)', 'claudelint', 'Validate PR Title']);
 const ALLOWED_FILES = Object.freeze(['package.json', 'package-lock.json']);
 const STATE_MARKER = 'rss-automerge-pilot-state-v1';
 const SHA_PATTERN = /^[0-9a-f]{40}$/i;

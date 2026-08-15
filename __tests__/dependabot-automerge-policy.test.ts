@@ -31,8 +31,7 @@ type AdmissionInput = {
 
 const headSha = 'a'.repeat(40);
 const requiredCheckBindings = [
-  { context: 'lint-and-test (20)', integrationId: 15368 },
-  { context: 'lint-and-test (22)', integrationId: 15368 },
+  { context: 'lint-and-test (24)', integrationId: 15368 },
   { context: 'claudelint', integrationId: 15368 },
   { context: 'Validate PR Title', integrationId: 15368 },
 ];
@@ -100,7 +99,6 @@ describe('Dependabot auto-merge policy', () => {
         requiredChecks: [
           requiredCheckBindings[0],
           requiredCheckBindings[1],
-          requiredCheckBindings[2],
           { context: 'Validate PR Title', integrationId: 0 },
         ],
       },
@@ -112,15 +110,14 @@ describe('Dependabot auto-merge policy', () => {
         requiredChecks: [
           requiredCheckBindings[0],
           requiredCheckBindings[1],
-          requiredCheckBindings[2],
-          requiredCheckBindings[2],
+          requiredCheckBindings[1],
         ],
       },
       'required check bindings',
     ],
     [
       'missing required check binding',
-      { requiredChecks: requiredCheckBindings.slice(0, 3) },
+      { requiredChecks: requiredCheckBindings.slice(0, 2) },
       'required check bindings',
     ],
     [
@@ -139,7 +136,6 @@ describe('Dependabot auto-merge policy', () => {
         requiredChecks: [
           requiredCheckBindings[0],
           requiredCheckBindings[1],
-          requiredCheckBindings[2],
           { context: 'Validate title', integrationId: 15368 },
         ],
       },
@@ -195,7 +191,7 @@ describe('Dependabot auto-merge policy', () => {
       },
       'pre-1.0',
     ],
-    ['missing required check', { successfulChecks: ['lint-and-test (20)'] }, 'required checks'],
+    ['missing required check', { successfulChecks: ['lint-and-test (24)'] }, 'required checks'],
     ['open state issue', { openStateIssues: 1 }, 'state issue'],
     ['another armed PR', { armedPullRequests: 1 }, 'armed'],
   ];

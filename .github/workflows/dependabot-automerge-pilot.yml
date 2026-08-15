@@ -101,8 +101,7 @@ jobs:
             "$RUNNER_TEMP/preflight-ruleset.json")
           EXPECTED_REQUIRED_CHECKS_JSON=$(jq -cn \
             '[
-              {context: "lint-and-test (20)", integrationId: 15368},
-              {context: "lint-and-test (22)", integrationId: 15368},
+              {context: "lint-and-test (24)", integrationId: 15368},
               {context: "claudelint", integrationId: 15368},
               {context: "Validate PR Title", integrationId: 15368}
             ]')
@@ -259,8 +258,7 @@ jobs:
             "$RUNNER_TEMP/admission-ruleset.json")
           EXPECTED_REQUIRED_CHECKS_JSON=$(jq -cn \
             '[
-              {context: "lint-and-test (20)", integrationId: 15368},
-              {context: "lint-and-test (22)", integrationId: 15368},
+              {context: "lint-and-test (24)", integrationId: 15368},
               {context: "claudelint", integrationId: 15368},
               {context: "Validate PR Title", integrationId: 15368}
             ]')
