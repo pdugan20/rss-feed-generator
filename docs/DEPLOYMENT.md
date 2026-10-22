@@ -23,6 +23,8 @@
 
 The cron service triggers cache refresh by calling the web service's `/refresh` endpoint. It does not scrape directly — the web service handles scraping and populates both its in-memory and disk-based caches.
 
+`railway.json` intentionally leaves out `deploy.startCommand` so each service can use its own start command. Railway configuration files override dashboard settings. A shared `npm start` in that file would launch the web server in the cron service and prevent the scheduled job from exiting.
+
 1. **Add Cron Service to Same Project:**
    - In your Railway project, click **+ Create**
    - Choose **GitHub Repo** and select the same repository

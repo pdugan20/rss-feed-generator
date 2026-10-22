@@ -139,8 +139,8 @@ function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
     const { url, force } = (request.body as { url?: string; force?: boolean }) || {};
 
     // Check API key
-    const validApiKey = process.env.API_KEY || 'your-secret-api-key';
-    if (apiKey !== validApiKey) {
+    const validApiKey = process.env.API_KEY;
+    if (!validApiKey || apiKey !== validApiKey) {
       return reply.code(401).send({
         error: 'Invalid or missing API key',
         hint: 'Include api_key in headers',
