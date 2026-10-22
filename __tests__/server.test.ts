@@ -1,6 +1,7 @@
 import cache from '../lib/cache';
 import feedGenerator from '../lib/feed-generator';
 import feedStore from '../lib/feed-store';
+import articleStore from '../lib/article-store';
 import { buildApp, ALLOWED_FEEDS, releaseRefreshLock } from '../server';
 import { feedUrls, feeds } from '../lib/feeds';
 import type { FastifyInstance } from 'fastify';
@@ -276,6 +277,64 @@ describe('GET /feed', () => {
 });
 
 describe('POST /refresh', () => {
+  test.each([undefined, ''])('rejects every refresh when API_KEY is %p', async (configuredKey) => {
+    const previousKey = process.env.API_KEY;
+    if (configuredKey === undefined) delete process.env.API_KEY;
+    else process.env.API_KEY = configuredKey;
+
+    try {
+      for (const suppliedKey of [undefined, '', 'your-secret-api-key', TEST_API_KEY]) {
+        const response = await app.inject({
+          method: 'POST',
+          url: '/refresh',
+          headers: suppliedKey === undefined ? {} : { api_key: suppliedKey },
+          payload: { force: true },
+        });
+        expect(response.statusCode).toBe(401);
+      }
+
+      expect(mockedArticleSource.fetchArticles).not.toHaveBeenCalled();
+      expect(mockedCache.del).not.toHaveBeenCalled();
+      expect(mockedFeedStore.set).not.toHaveBeenCalled();
+      expect(articleStore.clearReadingTimes).not.toHaveBeenCalled();
+      expect(articleStore.save).not.toHaveBeenCalled();
+      expect((await app.inject({ method: 'GET', url: '/health' })).statusCode).toBe(200);
+    } finally {
+      if (previousKey === undefined) delete process.env.API_KEY;
+      else process.env.API_KEY = previousKey;
+    }
+  });
+
+  test('rejects the old key and accepts the replacement after rotation', async () => {
+    const previousKey = process.env.API_KEY;
+    const replacementKey = 'replacement-test-api-key';
+    process.env.API_KEY = replacementKey;
+    mockedArticleSource.fetchArticles.mockResolvedValue({ articles: [], pageTitle: 'Test' });
+
+    try {
+      const rejected = await app.inject({
+        method: 'POST',
+        url: '/refresh',
+        headers: { api_key: TEST_API_KEY },
+        payload: {},
+      });
+      expect(rejected.statusCode).toBe(401);
+      expect(mockedArticleSource.fetchArticles).not.toHaveBeenCalled();
+
+      const accepted = await app.inject({
+        method: 'POST',
+        url: '/refresh',
+        headers: { api_key: replacementKey },
+        payload: {},
+      });
+      expect(accepted.statusCode).toBe(200);
+      expect(mockedArticleSource.fetchArticles).toHaveBeenCalledTimes(feedUrls.length);
+    } finally {
+      if (previousKey === undefined) delete process.env.API_KEY;
+      else process.env.API_KEY = previousKey;
+    }
+  });
+
   test('returns 401 without API key', async () => {
     const response = await app.inject({
       method: 'POST',
