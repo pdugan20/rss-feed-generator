@@ -16,7 +16,7 @@ const packageManifest = join(root, 'package.json');
 
 type Workflow = {
   on?: {
-    pull_request_target?: {
+    pull_request?: {
       types?: string[];
     };
     repository_dispatch?: {
@@ -338,9 +338,32 @@ describe('repository automation policy', () => {
     const contents = read(prLintWorkflow);
 
     expect(contents).toMatch(/^permissions:\n\s+pull-requests:\s+read\s*$/m);
+    expect((parse(contents) as Workflow).on?.pull_request?.types).toEqual([
+      'opened',
+      'reopened',
+      'edited',
+      'synchronize',
+    ]);
+    expect(contents).not.toContain('pull_request_target:');
     expect(contents).toContain(
       'amannn/action-semantic-pull-request@48f256284bd46cdaab1048c3721360e808335d50 # v6'
     );
+  });
+
+  it('runs the CI gate after every other job, including the lint-and-test matrix', () => {
+    const workflow = parse(read(ciWorkflow)) as Workflow;
+    const jobs = workflow.jobs ?? {};
+    expect(jobs['ci-gate']?.needs?.sort()).toEqual(
+      Object.keys(jobs)
+        .filter((name) => name !== 'ci-gate')
+        .sort()
+    );
+    expect(jobs['ci-gate']?.if).toBe('always()');
+    expect(jobs['ci-gate']?.steps?.[0]?.env?.RESULTS).toBe("${{ join(needs.*.result, ' ') }}");
+    for (const job of ['claudelint', 'lint-and-test']) {
+      const checkout = jobs[job]?.steps?.find((step) => step.uses?.startsWith('actions/checkout@'));
+      expect(checkout?.with?.['persist-credentials']).toBe(false);
+    }
   });
 
   it('keeps Dependabot security-only while Renovate owns routine versions', () => {
@@ -352,6 +375,10 @@ describe('repository automation policy', () => {
     expect(updates.map((update) => update['package-ecosystem'])).toEqual(['npm', 'github-actions']);
     expect(updates.every((update) => update['open-pull-requests-limit'] === 0)).toBe(true);
     expect(updates.map((update) => update.directory)).toEqual(['/', '/']);
+    expect(updates.map((update) => update.cooldown)).toEqual([
+      { 'default-days': 7 },
+      { 'default-days': 14 },
+    ]);
     expect(updates.every((update) => update.ignore === undefined)).toBe(true);
   });
 

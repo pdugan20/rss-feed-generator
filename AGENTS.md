@@ -22,6 +22,7 @@ npm test                 # Run test suite
 npm run test:ci          # Run tests with coverage (CI mode)
 
 # Code Quality
+npm run verify           # Run CI checks (including ClaudeLint) and compile the build
 npm run lint             # Run ESLint
 npm run lint:fix         # Auto-fix lint issues
 npm run format           # Format code with Prettier
