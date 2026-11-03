@@ -93,3 +93,12 @@ Same 4 files above (extractor can be a no-op stub), plus:
 - API key required for `/refresh` endpoint
 - Disk cache at `DATA_DIR` survives deploys (Railway volume at `/app/data`)
 - Pre-commit hooks lint and format staged files; pre-push hooks run typecheck + tests
+
+## Code Review Rules
+
+- Flag any fetch path that bypasses the `lib/feeds.ts` allowlist, permits arbitrary URLs
+  or redirect targets, or can reach local/private network resources through the scraper.
+- Flag `/refresh` or scheduled mutation paths that lack the intended API-key check,
+  bounded concurrency, timeouts, or retry-safe cache writes.
+- Flag a new feed that bypasses the documented registry/test file set or renders upstream
+  HTML and URLs without validation and safe feed encoding.
