@@ -1,3 +1,4 @@
+import { fetchPublicJson } from '../public-request';
 import type { Article, ApiFetcher } from '../types';
 
 const ALGOLIA_SEARCH_URL = 'https://hn.algolia.com/api/v1/search';
@@ -62,10 +63,10 @@ async function fetchTopStories(now: Date = new Date()): Promise<Article[]> {
     hitsPerPage: String(HITS_PER_PAGE),
   });
 
-  const response = await fetch(`${ALGOLIA_SEARCH_URL}?${params.toString()}`);
+  const response = await fetchPublicJson(`${ALGOLIA_SEARCH_URL}?${params.toString()}`);
 
   if (!response.ok) {
-    console.error(`HN Algolia API returned ${response.status}: ${response.statusText}`);
+    console.error(`HN Algolia API returned ${response.status}`);
     return [];
   }
 

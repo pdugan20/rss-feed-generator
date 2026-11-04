@@ -1,3 +1,5 @@
+jest.mock('../../../lib/public-request', () => ({ fetchPublicJson: jest.fn() }));
+import { fetchPublicJson } from '../../../lib/public-request';
 import type { ApiFetcher } from '../../../lib/types';
 
 const STORY_HIT = {
@@ -35,24 +37,22 @@ function mockFetchResponse(hits: unknown[], status = 200) {
 }
 
 describe('hackernews-top API fetcher', () => {
-  const originalFetch = global.fetch;
   let fetcher: ApiFetcher;
 
   beforeEach(() => {
-    jest.resetModules();
+    jest.clearAllMocks();
     fetcher = require('../../../lib/api-fetchers/hackernews-top');
     // Fix "now" to 2026-05-23T15:00:00Z so previous UTC day is 2026-05-22
     jest.useFakeTimers().setSystemTime(new Date('2026-05-23T15:00:00.000Z'));
   });
 
   afterEach(() => {
-    global.fetch = originalFetch;
     jest.useRealTimers();
   });
 
   test('queries Algolia with previous UTC day bounds', async () => {
     const mock = mockFetchResponse([STORY_HIT]);
-    global.fetch = mock;
+    jest.mocked(fetchPublicJson).mockImplementation(mock);
     await fetcher.fetch();
 
     const calledUrl = mock.mock.calls[0][0] as string;
@@ -64,7 +64,7 @@ describe('hackernews-top API fetcher', () => {
   });
 
   test('links to the HN discussion and embeds a clickable article anchor', async () => {
-    global.fetch = mockFetchResponse([STORY_HIT]);
+    jest.mocked(fetchPublicJson).mockImplementation(mockFetchResponse([STORY_HIT]));
     const articles = await fetcher.fetch();
     expect(articles).toHaveLength(1);
 
@@ -83,13 +83,17 @@ describe('hackernews-top API fetcher', () => {
   });
 
   test('escapes ampersands in the article URL within the anchor', async () => {
-    global.fetch = mockFetchResponse([{ ...STORY_HIT, url: 'https://example.com/a?x=1&y=2' }]);
+    jest
+      .mocked(fetchPublicJson)
+      .mockImplementation(
+        mockFetchResponse([{ ...STORY_HIT, url: 'https://example.com/a?x=1&y=2' }])
+      );
     const articles = await fetcher.fetch();
     expect(articles[0].description).toContain('href="https://example.com/a?x=1&amp;y=2"');
   });
 
   test('emits one item for Ask HN linking directly to the discussion', async () => {
-    global.fetch = mockFetchResponse([ASK_HN_HIT]);
+    jest.mocked(fetchPublicJson).mockImplementation(mockFetchResponse([ASK_HN_HIT]));
     const articles = await fetcher.fetch();
     expect(articles).toHaveLength(1);
     expect(articles[0].title).toBe('Ask HN: What are you working on?');
@@ -105,7 +109,7 @@ describe('hackernews-top API fetcher', () => {
       { ...STORY_HIT, objectID: 'b', title: 'High', points: 900 },
       { ...STORY_HIT, objectID: 'c', title: 'Mid', points: 200 },
     ];
-    global.fetch = mockFetchResponse(hits);
+    jest.mocked(fetchPublicJson).mockImplementation(mockFetchResponse(hits));
     const articles = await fetcher.fetch();
     expect(articles.map((a) => a.title)).toEqual(['High', 'Mid', 'Low']);
   });
@@ -116,14 +120,14 @@ describe('hackernews-top API fetcher', () => {
       objectID: `id-${i}`,
       points: 1000 - i,
     }));
-    global.fetch = mockFetchResponse(hits);
+    jest.mocked(fetchPublicJson).mockImplementation(mockFetchResponse(hits));
     const articles = await fetcher.fetch();
     expect(articles).toHaveLength(5);
   });
 
   test('skips hits without a title', async () => {
     const hits = [{ ...STORY_HIT, objectID: 'no-title', title: undefined }, STORY_HIT];
-    global.fetch = mockFetchResponse(hits);
+    jest.mocked(fetchPublicJson).mockImplementation(mockFetchResponse(hits));
     const articles = await fetcher.fetch();
     expect(articles).toHaveLength(1);
     expect(articles[0].guid).toBe('hn-12345');
@@ -131,7 +135,7 @@ describe('hackernews-top API fetcher', () => {
 
   test('handles missing points / num_comments gracefully', async () => {
     const hits = [{ ...STORY_HIT, objectID: 'nopoints', points: null, num_comments: null }];
-    global.fetch = mockFetchResponse(hits);
+    jest.mocked(fetchPublicJson).mockImplementation(mockFetchResponse(hits));
     const articles = await fetcher.fetch();
     expect(articles).toHaveLength(1);
     expect(articles[0].description).toContain('0 points');
@@ -139,13 +143,13 @@ describe('hackernews-top API fetcher', () => {
   });
 
   test('returns empty array on API error', async () => {
-    global.fetch = mockFetchResponse([], 500);
+    jest.mocked(fetchPublicJson).mockImplementation(mockFetchResponse([], 500));
     const articles = await fetcher.fetch();
     expect(articles).toEqual([]);
   });
 
   test('returns empty array when no hits', async () => {
-    global.fetch = mockFetchResponse([]);
+    jest.mocked(fetchPublicJson).mockImplementation(mockFetchResponse([]));
     const articles = await fetcher.fetch();
     expect(articles).toEqual([]);
   });

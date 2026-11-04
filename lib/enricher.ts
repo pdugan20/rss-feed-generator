@@ -32,41 +32,24 @@ async function enrichArticles(feedUrl: string, articles: Article[]): Promise<voi
 
     // Scrape individual article page for enrichment
     try {
-      const browser = await scraper.initBrowser();
-      const page = await browser.newPage();
+      const html = await scraper.loadHtml(article.link, feedUrl);
+      const $ = cheerio.load(html);
+      const result = extractor.enrichArticle($, article.link);
 
-      try {
-        await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36');
-        await page.goto(article.link, {
-          waitUntil: 'networkidle2',
-          timeout: 30000,
+      if (result.description || result.readingTime) {
+        const descToStore = result.description || cached || '';
+        articleStore.setArticleData(article.link, {
+          description: descToStore,
+          readingTime: result.readingTime,
         });
-
-        await new Promise((resolve) => setTimeout(resolve, 1000));
-
-        const html = await page.content();
-        const $ = cheerio.load(html);
-
-        const result = extractor.enrichArticle($, article.link);
-
-        if (result.description || result.readingTime) {
-          const descToStore = result.description || cached || '';
-          articleStore.setArticleData(article.link, {
-            description: descToStore,
-            readingTime: result.readingTime,
-          });
-          if (result.description && !article.description) {
-            article.description = result.description;
-          }
-          if (result.readingTime && !article.readingTime) {
-            article.readingTime = result.readingTime;
-          }
-          enrichedCount++;
+        if (result.description && !article.description) {
+          article.description = result.description;
         }
-      } finally {
-        await page.close();
+        if (result.readingTime && !article.readingTime) {
+          article.readingTime = result.readingTime;
+        }
+        enrichedCount++;
       }
-
       // Rate limit between page loads
       if (enrichedCount > 0) {
         await new Promise((resolve) => setTimeout(resolve, ENRICHMENT_DELAY_MS));

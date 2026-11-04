@@ -40,10 +40,18 @@ jobs:
       - name: Type check
         run: npm run typecheck
 
+      - name: Install test browser
+        run: ./node_modules/.bin/puppeteer browsers install chrome --install-deps
+
       - name: Run tests
         run: npm run test:ci
         env:
           API_KEY: test-api-key
+          NODE_ENV: test
+
+      - name: Verify real browser boundaries
+        run: npm run test:browser
+        env:
           NODE_ENV: test
 
   claudelint:

@@ -64,6 +64,7 @@ npm run dev           # Start dev server with tsx watch
 npm test              # Run test suite
 npm run lint          # Run ESLint
 npm run typecheck     # Type check without emitting
+npm run test:browser  # Compile and exercise owned, offline Chromium fixtures
 ```
 
 Pre-commit hooks lint and format staged files. Pre-push hooks run typecheck and tests.
@@ -71,3 +72,48 @@ Pre-commit hooks lint and format staged files. Pre-push hooks run typecheck and 
 ## Deployment
 
 See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for Railway setup, cron configuration, and deploy verification.
+
+## Fetch and browser boundaries
+
+Only registry feeds can start a scrape. Enrichment pages and main-frame redirects
+must stay on that feed's exact HTTPS origin or an explicit `pageOrigins` entry
+in the registry. The Red Team source's canonical redirect to `www.anthropic.com`
+is listed there; no hostname-suffix wildcard is used. Public HTTPS CDN scripts, styles and fetch/XHR
+requests can still hydrate the page. Images, fonts, media, embedded frames and
+background pings are unnecessary for extraction and are blocked.
+
+All allowed browser requests are fulfilled by `lib/public-request.ts`, which
+checks every DNS answer and pins the vetted addresses into the actual Node socket.
+Chromium has a local deny-only proxy (including loopback), DNS disabled, QUIC
+disabled, and an owned-profile WebRTC preference blocking non-proxied UDP to block
+traffic outside interception. The launch flag alone is insufficient in full Chrome.
+Each page uses a fresh browser context with service workers bypassed and cache
+disabled. Browser-enforced CSP denies popups, frames, workers and plugins; the DOM
+snapshot runs in an isolated DevTools world with a defensive Node byte check. Same-origin checks and Chromium site isolation remain enabled. The
+root-run Railway image still requires `--no-sandbox`; these network controls are
+not an operating-system sandbox or protection against a Chromium exploit.
+
+Limits: two active pages, sixteen queued pages, a 30-second page deadline,
+128 requests per page, four concurrent requests per page (eight globally),
+16 KiB request/response headers, 64 KiB request bodies, 4 MiB raw and decoded
+response bodies, 24 MiB combined raw/decoded bytes per page, and a 4 MiB serialized
+rendered document. Individual requests have a 15-second deadline covering queued
+work, DNS, headers and body. Redirects allow at most five hops. API fetchers use
+the same transport and keep redirects on their original HTTPS origin, retaining
+AP's POST body and Hacker News's GET query.
+
+Abort closes the page context immediately; a stuck close kills the owned browser
+after two seconds. OS DNS calls cannot be cancelled: at most two remain active
+until they settle, and an expired caller cannot connect later. Chromium's JS heap
+is capped at 128 MiB per isolate; this is not a total process or native-memory cap.
+Rendered-DOM sizing happens after scripts run, so hostile renderer allocations
+still need the platform's container limits. This change does not add a refresh
+rate limiter or a global enrichment-job deadline.
+
+`npm run test:browser` requires the Chrome revision pinned by the locked Puppeteer
+package. Install it with `./node_modules/.bin/puppeteer browsers install chrome`
+(add `--install-deps` on Linux). CI runs this check, including live headless
+JavaScript hydration, private HTTP/WebSocket and direct STUN fixtures, the proxy
+backstop without interception, redirect/fanout/DOM limits and context cleanup.
+Wire tests also require `openssl` and generate temporary test certificates.
+No fixture contacts a real feed or calls `/refresh`.

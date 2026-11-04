@@ -1,26 +1,12 @@
 import { enrichArticles } from '../../lib/enricher';
 import type { Article } from '../../lib/types';
 
-jest.mock('../../lib/scraper', () => {
-  const mockPage = {
-    setUserAgent: jest.fn(),
-    goto: jest.fn(),
-    content: jest
-      .fn()
-      .mockResolvedValue(
-        '<html><head><meta name="description" content="Enriched description"></head><body></body></html>'
-      ),
-    close: jest.fn(),
-  };
-  const mockBrowser = {
-    newPage: jest.fn().mockResolvedValue(mockPage),
-  };
-  return {
-    __esModule: false,
-    initBrowser: jest.fn().mockResolvedValue(mockBrowser),
-    close: jest.fn(),
-  };
-});
+jest.mock('../../lib/scraper', () => ({
+  loadHtml: jest
+    .fn()
+    .mockResolvedValue('<html><meta name="description" content="Enriched description"></html>'),
+  close: jest.fn(),
+}));
 
 jest.mock('../../lib/article-store', () => {
   const store: Record<string, { description: string; readingTime?: number }> = {};
@@ -81,7 +67,7 @@ describe('enricher', () => {
     const articles = [makeArticle()];
     await enrichArticles('https://example.com', articles);
 
-    expect(scraper.initBrowser).not.toHaveBeenCalled();
+    expect(scraper.loadHtml).not.toHaveBeenCalled();
     expect(articles[0].description).toBe('');
   });
 
@@ -104,7 +90,7 @@ describe('enricher', () => {
 
     expect(articles[0].description).toBe('Cached desc');
     expect(articles[0].readingTime).toBe(4);
-    expect(scraper.initBrowser).not.toHaveBeenCalled();
+    expect(scraper.loadHtml).not.toHaveBeenCalled();
   });
 
   test('enriches articles without cached descriptions', async () => {
@@ -119,7 +105,7 @@ describe('enricher', () => {
     ];
     await enrichArticles('https://example.com', articles);
 
-    expect(scraper.initBrowser).toHaveBeenCalled();
+    expect(scraper.loadHtml).toHaveBeenCalledWith('https://example.com/new', 'https://example.com');
     expect(enrichArticle).toHaveBeenCalled();
     expect(articles[0].description).toBe('From page');
     expect(mockedArticleStore.setArticleData).toHaveBeenCalledWith('https://example.com/new', {
@@ -145,10 +131,7 @@ describe('enricher', () => {
   });
 
   test('handles scraping errors gracefully per-article', async () => {
-    const mockBrowser = {
-      newPage: jest.fn().mockRejectedValue(new Error('Page creation failed')),
-    };
-    jest.mocked(scraper.initBrowser).mockResolvedValue(mockBrowser as never);
+    jest.mocked(scraper.loadHtml).mockRejectedValueOnce(new Error('Page creation failed'));
 
     mockedGetExtractor.mockReturnValue({
       extract: jest.fn().mockReturnValue([]),
@@ -163,20 +146,6 @@ describe('enricher', () => {
   });
 
   test('applies readingTime from enrichment to article', async () => {
-    // Re-establish scraper mock (previous test may have overridden it)
-    const mockPage = {
-      setUserAgent: jest.fn(),
-      goto: jest.fn(),
-      content: jest
-        .fn()
-        .mockResolvedValue(
-          '<html><head><meta name="description" content="Enriched description"></head><body></body></html>'
-        ),
-      close: jest.fn(),
-    };
-    const mockBrowser = { newPage: jest.fn().mockResolvedValue(mockPage) };
-    jest.mocked(scraper.initBrowser).mockResolvedValue(mockBrowser as never);
-
     const enrichArticle = jest.fn().mockReturnValue({ description: 'From page', readingTime: 5 });
     mockedGetExtractor.mockReturnValue({
       extract: jest.fn().mockReturnValue([]),
@@ -217,7 +186,7 @@ describe('enricher', () => {
 
     expect(articles[0].description).toBe('Cached desc');
     expect(articles[0].readingTime).toBe(3);
-    expect(scraper.initBrowser).not.toHaveBeenCalled();
+    expect(scraper.loadHtml).not.toHaveBeenCalled();
   });
 
   test('does not save when no articles were enriched', async () => {

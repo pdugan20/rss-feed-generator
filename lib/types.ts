@@ -21,6 +21,8 @@ export interface FeedConfig {
   type?: 'scrape' | 'api';
   cacheTtlMs?: number;
   maxItems?: number;
+  /** Explicit canonical page origins for known cross-origin source redirects. */
+  pageOrigins?: string[];
 }
 
 export interface ApiFetcher {
