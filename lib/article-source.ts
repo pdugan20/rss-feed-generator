@@ -12,7 +12,9 @@ interface FetchResult {
 async function fetchArticles(url: string): Promise<FetchResult> {
   const config = getFeedConfig(url);
 
-  if (config?.type === 'api') {
+  if (!config) throw new Error('Feed is not registered');
+
+  if (config.type === 'api') {
     const fetcher = getApiFetcher(config.extractor);
     if (!fetcher) {
       throw new Error(`No API fetcher registered for extractor: ${config.extractor}`);

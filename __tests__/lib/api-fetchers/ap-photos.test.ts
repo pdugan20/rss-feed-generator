@@ -1,3 +1,5 @@
+jest.mock('../../../lib/public-request', () => ({ fetchPublicJson: jest.fn() }));
+import { fetchPublicJson } from '../../../lib/public-request';
 import type { ApiFetcher } from '../../../lib/types';
 
 const MARINERS_HIT = {
@@ -42,27 +44,26 @@ function mockFetchResponse(hits: unknown[], status = 200) {
 }
 
 describe('ap-photos API fetcher', () => {
-  const originalFetch = global.fetch;
   let fetcher: ApiFetcher;
 
   beforeEach(() => {
-    jest.resetModules();
+    jest.clearAllMocks();
     fetcher = require('../../../lib/api-fetchers/ap-photos');
   });
 
-  afterEach(() => {
-    global.fetch = originalFetch;
-  });
+  afterEach(() => {});
 
   test('filters to only Mariners photos', async () => {
-    global.fetch = mockFetchResponse([MARINERS_HIT, OPPOSING_TEAM_HIT]);
+    jest
+      .mocked(fetchPublicJson)
+      .mockImplementation(mockFetchResponse([MARINERS_HIT, OPPOSING_TEAM_HIT]));
     const articles = await fetcher.fetch();
     expect(articles).toHaveLength(1);
     expect(articles[0].guid).toBe('ap-photo-abc123');
   });
 
   test('maps fields correctly', async () => {
-    global.fetch = mockFetchResponse([MARINERS_HIT]);
+    jest.mocked(fetchPublicJson).mockImplementation(mockFetchResponse([MARINERS_HIT]));
     const articles = await fetcher.fetch();
     const article = articles[0];
 
@@ -86,7 +87,7 @@ describe('ap-photos API fetcher', () => {
     const noRenditionsHit = {
       _source: { ...MARINERS_HIT._source, itemid: 'norend', renditions: undefined },
     };
-    global.fetch = mockFetchResponse([noRenditionsHit]);
+    jest.mocked(fetchPublicJson).mockImplementation(mockFetchResponse([noRenditionsHit]));
     const articles = await fetcher.fetch();
     expect(articles[0].imageWidth).toBeUndefined();
     expect(articles[0].imageHeight).toBeUndefined();
@@ -94,7 +95,7 @@ describe('ap-photos API fetcher', () => {
   });
 
   test('strips HTML from captions', async () => {
-    global.fetch = mockFetchResponse([MARINERS_HIT]);
+    jest.mocked(fetchPublicJson).mockImplementation(mockFetchResponse([MARINERS_HIT]));
     const articles = await fetcher.fetch();
     expect(articles[0].description).not.toContain('<p>');
     expect(articles[0].description).not.toContain('</p>');
@@ -110,19 +111,19 @@ describe('ap-photos API fetcher', () => {
         },
       },
     };
-    global.fetch = mockFetchResponse([longCaptionHit]);
+    jest.mocked(fetchPublicJson).mockImplementation(mockFetchResponse([longCaptionHit]));
     const articles = await fetcher.fetch();
     expect(articles[0].description.length).toBeLessThanOrEqual(500);
   });
 
   test('returns empty array on API error', async () => {
-    global.fetch = mockFetchResponse([], 500);
+    jest.mocked(fetchPublicJson).mockImplementation(mockFetchResponse([], 500));
     const articles = await fetcher.fetch();
     expect(articles).toEqual([]);
   });
 
   test('returns empty array when no hits', async () => {
-    global.fetch = mockFetchResponse([]);
+    jest.mocked(fetchPublicJson).mockImplementation(mockFetchResponse([]));
     const articles = await fetcher.fetch();
     expect(articles).toEqual([]);
   });
@@ -138,7 +139,7 @@ describe('ap-photos API fetcher', () => {
         caption: { nitf: '<p>Seattle Mariners photo.</p>' },
       },
     };
-    global.fetch = mockFetchResponse([minimalHit]);
+    jest.mocked(fetchPublicJson).mockImplementation(mockFetchResponse([minimalHit]));
     const articles = await fetcher.fetch();
     expect(articles).toHaveLength(1);
     expect(articles[0].title).toBe('AP Photo'); // no date, no opponent — raw fallback
@@ -149,7 +150,7 @@ describe('ap-photos API fetcher', () => {
   });
 
   test('builds title with date + opponent + person for game photos', async () => {
-    global.fetch = mockFetchResponse([MARINERS_HIT]);
+    jest.mocked(fetchPublicJson).mockImplementation(mockFetchResponse([MARINERS_HIT]));
     const articles = await fetcher.fetch();
     expect(articles[0].title).toBe('Apr 1 vs Yankees — Luis Castillo');
   });
@@ -162,7 +163,7 @@ describe('ap-photos API fetcher', () => {
         persons: [],
       },
     };
-    global.fetch = mockFetchResponse([noPersonsHit]);
+    jest.mocked(fetchPublicJson).mockImplementation(mockFetchResponse([noPersonsHit]));
     const articles = await fetcher.fetch();
     expect(articles[0].title).toBe('Apr 1 vs Yankees');
   });
@@ -176,7 +177,7 @@ describe('ap-photos API fetcher', () => {
         persons: [],
       },
     };
-    global.fetch = mockFetchResponse([nonGameHit]);
+    jest.mocked(fetchPublicJson).mockImplementation(mockFetchResponse([nonGameHit]));
     const articles = await fetcher.fetch();
     expect(articles[0].title).toBe('Apr 1: Mariners Spring Training');
   });
@@ -190,7 +191,7 @@ describe('ap-photos API fetcher', () => {
         persons: [{ name: 'Julio Rodriguez' }],
       },
     };
-    global.fetch = mockFetchResponse([awayHit]);
+    jest.mocked(fetchPublicJson).mockImplementation(mockFetchResponse([awayHit]));
     const articles = await fetcher.fetch();
     expect(articles[0].title).toBe('Apr 1 vs Angels — Julio Rodriguez');
   });
@@ -202,7 +203,7 @@ describe('ap-photos API fetcher', () => {
         itemid: `item-${i}`,
       },
     }));
-    global.fetch = mockFetchResponse(hits);
+    jest.mocked(fetchPublicJson).mockImplementation(mockFetchResponse(hits));
     const articles = await fetcher.fetch();
     expect(articles).toHaveLength(30);
   });

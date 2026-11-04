@@ -33,6 +33,8 @@ const feeds: FeedConfig[] = [
     url: 'https://red.anthropic.com',
     extractor: 'red-team',
     label: 'anthropic-red-team',
+    // This source redirects to its canonical research page on the main site.
+    pageOrigins: ['https://www.anthropic.com'],
   },
   {
     url: 'https://www.anthropic.com/news',

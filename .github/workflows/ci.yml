@@ -40,10 +40,25 @@ jobs:
       - name: Type check
         run: npm run typecheck
 
+      - name: Install test browser
+        run: |
+          sudo env PUPPETEER_CACHE_DIR="$HOME/.cache/puppeteer"             "$(command -v node)" ./node_modules/.bin/puppeteer browsers install chrome --install-deps
+
       - name: Run tests
         run: npm run test:ci
         env:
           API_KEY: test-api-key
+          NODE_ENV: test
+
+      - name: Verify real browser boundaries
+        # Match the root-run Railway image in an ephemeral CI fixture; do not
+        # weaken the runner's global AppArmor or user-namespace configuration.
+        run: |
+          npm run build
+          test_browser=$(node --input-type=module -e 'import puppeteer from "puppeteer"; console.log(await puppeteer.executablePath())')
+          "$test_browser" --version
+          sudo env PUPPETEER_EXECUTABLE_PATH="$test_browser" PUPPETEER_CACHE_DIR="$HOME/.cache/puppeteer" NODE_ENV=test             "$(command -v node)" dist/scripts/verify-browser-boundary.js
+        env:
           NODE_ENV: test
 
   claudelint:

@@ -1,3 +1,4 @@
+import { fetchPublicJson } from '../public-request';
 import type { Article, ApiFetcher } from '../types';
 
 const AP_SEARCH_URL = 'https://api.newsroom.ap.org/v1/search';
@@ -120,7 +121,7 @@ interface ApSearchResponse {
 }
 
 async function fetchPhotos(): Promise<Article[]> {
-  const response = await fetch(AP_SEARCH_URL, {
+  const response = await fetchPublicJson(AP_SEARCH_URL, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -131,7 +132,7 @@ async function fetchPhotos(): Promise<Article[]> {
   });
 
   if (!response.ok) {
-    console.error(`AP Photos API returned ${response.status}: ${response.statusText}`);
+    console.error(`AP Photos API returned ${response.status}`);
     return [];
   }
 
