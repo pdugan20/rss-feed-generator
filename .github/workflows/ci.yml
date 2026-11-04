@@ -55,7 +55,7 @@ jobs:
         # weaken the runner's global AppArmor or user-namespace configuration.
         run: |
           npm run build
-          test_browser=$(node --input-type=module -e 'import puppeteer from "puppeteer"; console.log(puppeteer.executablePath())')
+          test_browser=$(node --input-type=module -e 'import puppeteer from "puppeteer"; console.log(await puppeteer.executablePath())')
           "$test_browser" --version
           sudo env PUPPETEER_EXECUTABLE_PATH="$test_browser" PUPPETEER_CACHE_DIR="$HOME/.cache/puppeteer" NODE_ENV=test             "$(command -v node)" dist/scripts/verify-browser-boundary.js
         env:
