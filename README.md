@@ -112,7 +112,8 @@ rate limiter or a global enrichment-job deadline.
 
 `npm run test:browser` requires the Chrome revision pinned by the locked Puppeteer
 package. Install it with `./node_modules/.bin/puppeteer browsers install chrome`
-(add `--install-deps` on Linux). CI runs this check, including live headless
+(add `--install-deps` with root privileges on Linux). CI runs the browser fixture
+as root to match the Railway runtime, including live headless
 JavaScript hydration, private HTTP/WebSocket and direct STUN fixtures, the proxy
 backstop without interception, redirect/fanout/DOM limits and context cleanup.
 Wire tests also require `openssl` and generate temporary test certificates.
