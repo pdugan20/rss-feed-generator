@@ -5,11 +5,14 @@ const feeds: FeedConfig[] = [
     url: 'https://www.seattletimes.com/sports/washington-huskies-football/',
     extractor: 'seattle-times',
     label: 'huskies',
+    // The list is server-rendered; in Chromium the ad stack exceeds page limits.
+    render: 'html',
   },
   {
     url: 'https://www.seattletimes.com/sports/mariners/',
     extractor: 'seattle-times',
     label: 'mariners',
+    render: 'html',
   },
   {
     url: 'https://www.anthropic.com/engineering',

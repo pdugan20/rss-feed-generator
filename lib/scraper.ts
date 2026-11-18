@@ -9,7 +9,7 @@ import type { Browser, BrowserContext, HTTPRequest } from 'puppeteer' with {
 import * as cheerio from 'cheerio';
 import { getExtractor } from './extract';
 import { getFeedConfig } from './feeds';
-import { checkedUrl, requestPublic, MAX_REDIRECTS } from './public-request';
+import { checkedUrl, fetchPublicJson, requestPublic, MAX_REDIRECTS } from './public-request';
 import { BoundedGate } from './bounded-gate';
 import articleStore from './article-store';
 import type { Article } from './types';
@@ -19,6 +19,7 @@ interface ScrapeResult {
   pageTitle: string;
 }
 const PAGE_TIMEOUT_MS = 30_000;
+const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36';
 const MAX_DOCUMENT_BYTES = 4 * 1024 * 1024;
 const MAX_PAGE_BYTES = 24 * 1024 * 1024;
 // Requests the scraper fulfills over the network. Blocked requests (images, fonts,
@@ -173,7 +174,7 @@ class Scraper {
             const page = await context.newPage();
             await page.setBypassServiceWorker(true);
             await page.setCacheEnabled(false);
-            await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36');
+            await page.setUserAgent(USER_AGENT);
             await page.setRequestInterception(true);
             const network = new BoundedGate(4, MAX_PAGE_REQUESTS);
             let seen = 0;
@@ -311,8 +312,24 @@ class Scraper {
     }
   }
 
+  /**
+   * Fetch a server-rendered page without a browser. Uses the same public-only,
+   * size-bounded transport as API fetchers; redirects must stay on the feed origin.
+   */
+  async loadStaticHtml(value: string): Promise<string> {
+    const url = checkedPageUrl(value, value);
+    const response = await fetchPublicJson(url.href, {
+      headers: { 'User-Agent': USER_AGENT, Accept: 'text/html' },
+    });
+    if (!response.ok) throw new Error(`Feed page returned ${response.status}`);
+    return response.text();
+  }
+
   async scrapeArticles(url: string): Promise<ScrapeResult> {
-    const html = await this.loadHtml(url);
+    const html =
+      getFeedConfig(url)?.render === 'html'
+        ? await this.loadStaticHtml(url)
+        : await this.loadHtml(url);
     const $ = cheerio.load(html);
 
     const pageTitle = $('title').text().trim() || $('h1').first().text().trim() || 'RSS Feed';
