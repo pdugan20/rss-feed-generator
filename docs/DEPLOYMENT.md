@@ -71,10 +71,17 @@ feed's `healthy`, `lastSuccessAt`, `lastAttemptAt` and `lastError`, plus a top-l
 transient failure does not alert but two missed daily refreshes do.
 
 The `Feed Health` workflow (`.github/workflows/feed-health.yml`) reads production
-`/status` daily at 14:30 UTC and fails when any feed is unhealthy or the service is
-unreachable. GitHub emails a failed scheduled run to whoever last changed the workflow's
-schedule; the run summary lists each failing feed with its last error. It keeps failing
-daily until the feed recovers. Run it on demand from the Actions tab, or locally:
+`/status` daily at 14:30 UTC. A scheduled run fails, and GitHub emails whoever last
+changed the workflow's schedule, when:
+
+- a feed crossed the 36-hour threshold since the previous day's run (one alert per breakage)
+- it is Monday and any feed is still failing (weekly reminder)
+- the service is unreachable or `/status` lacks health fields (every run)
+
+Every run summary lists all failing feeds with their last error, marking which ones
+alerted. The check anchors each run to its planned 14:30 UTC slot, so a late GitHub start
+neither skips nor repeats an alert. Manual runs from the Actions tab report every failing
+feed. To run it locally:
 
 ```bash
 npx tsx scripts/check-feed-health.ts   # FEED_STATUS_URL overrides the production URL

@@ -1,8 +1,10 @@
 name: Feed Health
 
-# Fails when a production feed has gone 36 hours without a successful refresh.
-# GitHub's failed-workflow notification (email and mobile) is the alert, and the
-# run summary lists each failing feed with its last error. Read-only by design.
+# Fails once when a production feed passes 36 hours without a successful refresh,
+# again each Monday while it stays broken, and on every run the service is
+# unreachable. GitHub's failed-workflow notification is the alert; the run summary
+# lists every failing feed with its last error. Manual runs report all failures.
+# Read-only by design. Keep the cron in sync with scripts/check-feed-health.ts.
 on:
   schedule:
     # 14:30 UTC, ninety minutes after the Railway refresh cron (13:00 UTC).
