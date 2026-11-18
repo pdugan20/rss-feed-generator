@@ -116,10 +116,18 @@ describe('ap-photos API fetcher', () => {
     expect(articles[0].description.length).toBeLessThanOrEqual(500);
   });
 
-  test('returns empty array on API error', async () => {
-    jest.mocked(fetchPublicJson).mockImplementation(mockFetchResponse([], 500));
-    const articles = await fetcher.fetch();
-    expect(articles).toEqual([]);
+  test('throws on API error so feed health records the cause', async () => {
+    jest.mocked(fetchPublicJson).mockImplementation(mockFetchResponse([], 403));
+    await expect(fetcher.fetch()).rejects.toThrow('AP Photos API returned 403');
+  });
+
+  test('queries the anonymous search endpoint with a User-Agent', async () => {
+    jest.mocked(fetchPublicJson).mockImplementation(mockFetchResponse([]));
+    await fetcher.fetch();
+    const [url, options] = jest.mocked(fetchPublicJson).mock.calls[0];
+    expect(url).toBe('https://api.newsroom.ap.org/v1/nrsearch/anonymous/search');
+    expect(options?.headers?.['User-Agent']).toBeTruthy();
+    expect(JSON.parse(String(options?.body)).Query).toBe('Lindsey Wasson Seattle Mariners');
   });
 
   test('returns empty array when no hits', async () => {

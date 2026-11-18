@@ -2,210 +2,75 @@ import * as cheerio from 'cheerio';
 import { extract, enrichArticle } from '../../../lib/extractors/claude-blog';
 
 const BASE_URL = 'https://claude.com/blog';
+const C = 'ResourceCard-module-scss-module__q33Tuq';
 
+function card(href: string, date: string, title: string, excerpt?: string, tags: string[] = []) {
+  return `<a href="${href}" class="${C}__card">
+    <div class="${C}__header text-caption"><span class="${C}__type"><svg></svg>Article</span><span class="${C}__meta">${date}</span></div>
+    <div class="${C}__content"><div class="${C}__body">
+      <h3 class="${C}__title text-headline-6-serif">${title}</h3>
+      ${excerpt ? `<p class="${C}__excerpt text-body-3">${excerpt}</p>` : ''}
+      <div class="${C}__products">${tags.map((t) => `<span class="${C}__productTag"><span class="${C}__markupIcon"></span>${t}</span>`).join('')}</div>
+    </div></div>
+  </a>`;
+}
+
+// Trimmed from claude.com/resources/articles: a featured card repeats a listed
+// post, one card links out to claude.dev, and filter tabs share the prefix.
 const SAMPLE_HTML = `
 <html><body>
-  <div class="blog_cms_grid">
-    <div class="blog_cms_item w-dyn-item">
-      <div class="card_blog_wrap">
-        <a href="/blog/cowork-research-preview" class="clickable_link">Read more</a>
-        <div class="card_blog_list_content">
-          <h3 class="card_blog_title">Cowork: Claude Code for the rest of your work</h3>
-          <div class="card_blog_list_meta">January 12, 2026</div>
-        </div>
-        <div class="card_blog_visual_wrap">
-          <img src="https://cdn.claude.com/images/cowork.jpg" />
-        </div>
-      </div>
-    </div>
-    <div class="blog_cms_item w-dyn-item">
-      <div class="card_blog_wrap">
-        <a href="/blog/enterprise-agents-2026" class="clickable_link">Read more</a>
-        <div class="card_blog_list_content">
-          <h3 class="card_blog_title">How enterprises are building AI agents in 2026</h3>
-          <div class="card_blog_list_meta">December 9, 2025</div>
-        </div>
-      </div>
-    </div>
-    <div class="blog_cms_item w-dyn-item">
-      <div class="card_blog_wrap">
-        <a href="/blog/frontend-design-skills" class="clickable_link">Read more</a>
-        <div class="card_blog_list_content">
-          <h3 class="card_blog_title">Improving frontend design through Skills</h3>
-          <div class="card_blog_list_meta">November 12, 2025</div>
-          <p class="description">A deep dive into how Skills improve design workflows.</p>
-        </div>
-      </div>
-    </div>
-  </div>
-  <nav>
-    <a href="/blog">All Posts</a>
-  </nav>
+  <nav><a href="/resources/articles">Articles</a><a href="/resources/guides">Guides</a></nav>
+  <div class="${C}__cardWrapper">${card('/resources/articles/claude-meetings', 'Nov 12, 2026', 'Introducing Claude Meetings', 'Add Claude to your video call.', ['Claude'])}</div>
+  ${card('https://claude.dev/blog/chaos-loop-claude-docs-launch/', 'Nov 17, 2026', 'Using a "chaos loop" to harden the Claude Docs launch', 'How Claude spent two weeks load testing.', ['Claude Code', 'Claude Code'])}
+  ${card('/resources/articles/building-always-on-agents', 'Nov 13, 2026', 'Building always-on agents', 'Always-on agents run indefinitely.', ['Claude Platform'])}
+  ${card('/resources/articles/claude-meetings', 'Nov 12, 2026', 'Introducing Claude Meetings', 'Add Claude to your video call.', ['Claude'])}
+  ${card('/resources/articles/linked-billing-on-claude-platform', 'Nov 17, 2026', 'Linked billing on the Claude Platform')}
 </body></html>
 `;
 
 describe('claude-blog extractor', () => {
-  test('extracts articles from blog CMS items', () => {
-    const $ = cheerio.load(SAMPLE_HTML);
-    const articles = extract($, BASE_URL);
-    expect(articles).toHaveLength(3);
+  test('extracts each resource card once', () => {
+    const articles = extract(cheerio.load(SAMPLE_HTML), BASE_URL);
+    expect(articles.map((a) => a.link)).toEqual([
+      'https://claude.com/resources/articles/claude-meetings',
+      'https://claude.dev/blog/chaos-loop-claude-docs-launch/',
+      'https://claude.com/resources/articles/building-always-on-agents',
+      'https://claude.com/resources/articles/linked-billing-on-claude-platform',
+    ]);
   });
 
-  test('extracts title from card_blog_title', () => {
-    const $ = cheerio.load(SAMPLE_HTML);
-    const articles = extract($, BASE_URL);
-    expect(articles[0].title).toBe('Cowork: Claude Code for the rest of your work');
+  test('maps title, excerpt, date and product tags', () => {
+    const articles = extract(cheerio.load(SAMPLE_HTML), BASE_URL);
+    expect(articles[1]).toMatchObject({
+      title: 'Using a "chaos loop" to harden the Claude Docs launch',
+      description: 'How Claude spent two weeks load testing.',
+      pubDate: new Date('Nov 17, 2026'),
+      guid: 'https://claude.dev/blog/chaos-loop-claude-docs-launch/',
+      categories: ['Claude Code'],
+    });
   });
 
-  test('resolves relative links to absolute URLs', () => {
-    const $ = cheerio.load(SAMPLE_HTML);
-    const articles = extract($, BASE_URL);
-    expect(articles[0].link).toBe('https://claude.com/blog/cowork-research-preview');
+  test('allows cards without an excerpt, tags or image', () => {
+    const article = extract(cheerio.load(SAMPLE_HTML), BASE_URL)[3];
+    expect(article).toMatchObject({ description: '', imageUrl: null, categories: undefined });
   });
 
-  test('parses date from metadata', () => {
-    const $ = cheerio.load(SAMPLE_HTML);
-    const articles = extract($, BASE_URL);
-    expect(articles[0].pubDate).toBeInstanceOf(Date);
-    expect(articles[0].pubDate!.getMonth()).toBe(0); // January
-  });
-
-  test('parses date from u-text-style-caption element (live site format)', () => {
-    const html = `
-      <html><body>
-        <div class="blog_cms_item">
-          <div class="card_blog_wrap">
-            <a href="/blog/some-post" class="clickable_link">Read</a>
-            <div class="card_blog_content">
-              <div class="u-text-style-caption u-foreground-tertiary u-mb-1-5">Feb 5, 2026</div>
-              <div class="card_blog_title u-text-style-h6">Some Blog Post Title Here</div>
-            </div>
-          </div>
-        </div>
-      </body></html>
-    `;
-    const $ = cheerio.load(html);
-    const articles = extract($, BASE_URL);
-    expect(articles).toHaveLength(1);
-    expect(articles[0].pubDate).toBeInstanceOf(Date);
-    expect(articles[0].pubDate!.getFullYear()).toBe(2026);
-    expect(articles[0].pubDate!.getMonth()).toBe(1); // February
-    expect(articles[0].pubDate!.getDate()).toBe(5);
-  });
-
-  test('extracts image URL', () => {
-    const $ = cheerio.load(SAMPLE_HTML);
-    const articles = extract($, BASE_URL);
-    expect(articles[0].imageUrl).toContain('cowork.jpg');
-  });
-
-  test('article without image has null imageUrl', () => {
-    const $ = cheerio.load(SAMPLE_HTML);
-    const articles = extract($, BASE_URL);
-    expect(articles[1].imageUrl).toBeNull();
-  });
-
-  test('extracts description when available', () => {
-    const $ = cheerio.load(SAMPLE_HTML);
-    const articles = extract($, BASE_URL);
-    expect(articles[2].description).toContain('Skills improve design');
-  });
-
-  test('falls back to link scanning when no CMS items', () => {
-    const fallbackHtml = `
-      <html><body>
-        <div>
-          <a href="/blog/some-long-article-post">
-            Some Long Article Post Title Here
-          </a>
-        </div>
-      </body></html>
-    `;
-    const $ = cheerio.load(fallbackHtml);
-    const articles = extract($, BASE_URL);
-    expect(articles.length).toBeGreaterThan(0);
-    expect(articles[0].link).toBe('https://claude.com/blog/some-long-article-post');
-  });
-
-  test('skips category filter links', () => {
-    const html = `
-      <html><body>
-        <div class="blog_cms_item">
-          <a href="/blog/category/agents" class="clickable_link">Read</a>
-          <h3 class="card_blog_title">Agents</h3>
-        </div>
-        <div class="blog_cms_item">
-          <a href="/blog/category/claude-code" class="clickable_link">Read</a>
-          <h3 class="card_blog_title">Claude Code</h3>
-        </div>
-        <div class="blog_cms_item">
-          <a href="/blog/real-post-title" class="clickable_link">Read</a>
-          <h3 class="card_blog_title">A Real Blog Post Title</h3>
-        </div>
-      </body></html>
-    `;
-    const $ = cheerio.load(html);
-    const articles = extract($, BASE_URL);
-    expect(articles).toHaveLength(1);
-    expect(articles[0].title).toBe('A Real Blog Post Title');
-  });
-
-  test('skips main /blog link in fallback', () => {
-    const html = `
-      <html><body>
-        <a href="/blog">All Posts</a>
-        <a href="/blog/real-article-title">A Real Blog Article Title</a>
-      </body></html>
-    `;
-    const $ = cheerio.load(html);
-    const articles = extract($, BASE_URL);
-    expect(articles).toHaveLength(1);
-    expect(articles[0].link).toContain('real-article-title');
-  });
-
-  test('deduplicates by URL', () => {
-    const dupeHtml = `
-      <html><body>
-        <div class="blog_cms_item">
-          <a href="/blog/same-post" class="clickable_link">Read</a>
-          <h3 class="card_blog_title">Same Post Title</h3>
-        </div>
-        <div class="blog_cms_item">
-          <a href="/blog/same-post" class="clickable_link">Read</a>
-          <h3 class="card_blog_title">Same Post Title</h3>
-        </div>
-      </body></html>
-    `;
-    const $ = cheerio.load(dupeHtml);
-    const articles = extract($, BASE_URL);
-    expect(articles).toHaveLength(1);
+  test('ignores wrappers and navigation links', () => {
+    const links = extract(cheerio.load(SAMPLE_HTML), BASE_URL).map((a) => a.link);
+    expect(links).not.toContain('https://claude.com/resources/guides');
   });
 
   test('caps at 20 articles', () => {
-    let html = '<html><body>';
-    for (let i = 0; i < 25; i++) {
-      html += `
-        <div class="blog_cms_item">
-          <a href="/blog/post-${i}" class="clickable_link">Read</a>
-          <h3 class="card_blog_title">Blog Post Number ${i} Title</h3>
-        </div>`;
-    }
-    html += '</body></html>';
-    const $ = cheerio.load(html);
-    const articles = extract($, BASE_URL);
-    expect(articles).toHaveLength(20);
+    const html = Array.from({ length: 25 }, (_, i) =>
+      card(`/resources/articles/post-${i}`, 'Nov 1, 2026', `Post ${i}`)
+    ).join('');
+    expect(extract(cheerio.load(html), BASE_URL)).toHaveLength(20);
   });
 
-  test('returns empty array for page with no blog links', () => {
-    const $ = cheerio.load('<html><body><p>Nothing here</p></body></html>');
-    const articles = extract($, BASE_URL);
-    expect(articles).toHaveLength(0);
-  });
-
-  test('sets guid equal to link', () => {
-    const $ = cheerio.load(SAMPLE_HTML);
-    const articles = extract($, BASE_URL);
-    expect(articles[0].guid).toBe(articles[0].link);
+  test('returns no articles for the retired Webflow blog layout', () => {
+    const html =
+      '<div class="blog_cms_item"><a href="/blog/old-post"><h3 class="card_blog_title">An old blog post</h3></a></div>';
+    expect(extract(cheerio.load(html), BASE_URL)).toEqual([]);
   });
 });
 
@@ -304,44 +169,5 @@ describe('claude-blog enrichArticle', () => {
     const $ = cheerio.load(html);
     const result = enrichArticle($, 'https://claude.com/blog/some-post');
     expect(result.readingTime).toBeUndefined();
-  });
-});
-
-describe('claude-blog category extraction', () => {
-  test('extracts categories from card metadata', () => {
-    const html = `
-      <html><body>
-        <div class="blog_cms_item">
-          <a href="/blog/some-post" class="clickable_link">Read</a>
-          <h3 class="card_blog_title">Some Blog Post Title Here</h3>
-          <span class="card_blog_category">Product announcements</span>
-        </div>
-      </body></html>
-    `;
-    const $ = cheerio.load(html);
-    const articles = extract($, BASE_URL);
-    expect(articles[0].categories).toEqual(['Product announcements']);
-  });
-
-  test('articles without category elements have no categories', () => {
-    const $ = cheerio.load(SAMPLE_HTML);
-    const articles = extract($, BASE_URL);
-    expect(articles[0].categories).toBeUndefined();
-  });
-
-  test('deduplicates categories within a card', () => {
-    const html = `
-      <html><body>
-        <div class="blog_cms_item">
-          <a href="/blog/some-post" class="clickable_link">Read</a>
-          <h3 class="card_blog_title">Some Blog Post Title Here</h3>
-          <span class="category">Research</span>
-          <span class="tag">Research</span>
-        </div>
-      </body></html>
-    `;
-    const $ = cheerio.load(html);
-    const articles = extract($, BASE_URL);
-    expect(articles[0].categories).toEqual(['Research']);
   });
 });

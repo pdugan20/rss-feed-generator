@@ -9,6 +9,14 @@ jest.mock('../../lib/article-source');
 jest.mock('../../lib/cache');
 jest.mock('../../lib/feed-generator');
 jest.mock('../../lib/feed-store');
+jest.mock('../../lib/feed-health', () => ({
+  ...jest.requireActual('../../lib/feed-health'),
+  feedHealth: {
+    get: jest.fn().mockReturnValue(null),
+    recordSuccess: jest.fn(),
+    recordFailure: jest.fn(),
+  },
+}));
 jest.mock('../../lib/enricher', () => ({
   enrichArticles: jest.fn().mockResolvedValue(undefined),
 }));

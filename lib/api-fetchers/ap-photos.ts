@@ -1,10 +1,13 @@
 import { fetchPublicJson } from '../public-request';
 import type { Article, ApiFetcher } from '../types';
 
-const AP_SEARCH_URL = 'https://api.newsroom.ap.org/v1/search';
+// Newsroom's anonymous search. It rejects requests without a User-Agent (403).
+const AP_SEARCH_URL = 'https://api.newsroom.ap.org/v1/nrsearch/anonymous/search';
 
 const SEARCH_BODY = {
-  Query: 'Lindsey Wasson',
+  // Include the team so the newest 100 results stay Mariners photos in the
+  // offseason, when the photographer's latest work is general news.
+  Query: 'Lindsey Wasson Seattle Mariners',
   MediaTypes: ['photo'],
   PageNumber: 1,
   MixedMediaPageNumber: 1,
@@ -125,16 +128,15 @@ async function fetchPhotos(): Promise<Article[]> {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
+      'User-Agent': 'Mozilla/5.0 (compatible; rss-feed-generator)',
       Origin: 'https://newsroom.ap.org',
       Referer: 'https://newsroom.ap.org/',
     },
     body: JSON.stringify(SEARCH_BODY),
   });
 
-  if (!response.ok) {
-    console.error(`AP Photos API returned ${response.status}`);
-    return [];
-  }
+  // Throw so feed health records the real cause instead of "No articles found".
+  if (!response.ok) throw new Error(`AP Photos API returned ${response.status}`);
 
   const json = (await response.json()) as ApSearchResponse;
   const hits = json?.Items ?? [];

@@ -1,165 +1,80 @@
 import * as cheerio from 'cheerio';
 import { extract, enrichArticle } from '../../../lib/extractors/anthropic';
-import type { Article } from '../../../lib/types';
 
 const BASE_URL = 'https://www.anthropic.com/engineering';
 
+function row(slug: string, title: string, date: string, image = true): string {
+  return `<div class="qB_UoW_card"><article class="nUeDbq_article" data-listing-row="article-${slug}">
+    <header class="nUeDbq_header"><button aria-label="Related to ${title}" type="button"></button><time>${date}</time></header>
+    ${image ? `<figure><img alt="" src="https://assets.claude.com/${slug}.jpg?w=1080&amp;q=75"></figure>` : ''}
+    <div class="nUeDbq_meta"><h3 class="nUeDbq_metaTitle"><a class="nUeDbq_metaTitleLink" href="/research/${slug}">${title}</a></h3></div>
+  </article></div>`;
+}
+
+// Trimmed from the live page: a featured hero repeats a listed post, team links
+// share the /research/ prefix, and the list itself is newest first.
 const SAMPLE_HTML = `
 <html><body>
-  <div class="card">
-    <a href="/engineering/infrastructure-noise">
-      <h3 class="title">Quantifying Infrastructure Noise in Agentic Coding Evals</h3>
-    </a>
-    <p class="summary">Infrastructure configuration can swing agentic coding benchmarks by several percentage points.</p>
-    <span class="date">Feb 05, 2026</span>
-    <img src="https://www-cdn.anthropic.com/images/infra-noise.svg" />
-  </div>
-  <div class="card">
-    <a href="/engineering/building-c-compiler">
-      <h3 class="title">Building a C Compiler with a Team of Parallel Claudes</h3>
-    </a>
-    <p class="summary">We tasked Opus 4.6 to build a C Compiler.</p>
-    <span class="date">Jan 28, 2026</span>
-  </div>
-  <div class="card">
-    <a href="/engineering/ai-resistant-evals">
-      <h3 class="title">Designing AI-Resistant Technical Evaluations</h3>
-    </a>
-    <p class="summary">What we learned from three iterations of a performance engineering take-home.</p>
-    <time datetime="2026-01-21">Jan 21, 2026</time>
-  </div>
-  <nav>
-    <a href="/engineering">All Posts</a>
-    <a href="/">Home</a>
-  </nav>
+  <nav><a href="/engineering">Engineering</a><a href="/research/team/alignment">Alignment</a></nav>
+  <section class="featured">
+    <a href="/research/components-of-agent-memory"><h2>The components of agent memory</h2></a>
+    <a href="/research/components-of-agent-memory">Read more</a>
+  </section>
+  ${row('building-strong-safety-evaluations', 'Building strong safety evaluations', 'Nov 13, 2026')}
+  ${row('components-of-agent-memory', 'The components of agent memory', 'Nov 6, 2026')}
+  ${row('redesigning-source-control', 'Redesigning source control at Anthropic', 'Oct 13, 2026', false)}
+  <footer><a href="/research/team/economics">Economics</a></footer>
 </body></html>
 `;
 
 describe('anthropic extractor', () => {
-  test('extracts articles from engineering page', () => {
-    const $ = cheerio.load(SAMPLE_HTML);
-    const articles = extract($, BASE_URL);
-    expect(articles).toHaveLength(3);
+  test('extracts listing rows newest first', () => {
+    const articles = extract(cheerio.load(SAMPLE_HTML), BASE_URL);
+    expect(articles.map((a) => a.title)).toEqual([
+      'Building strong safety evaluations',
+      'The components of agent memory',
+      'Redesigning source control at Anthropic',
+    ]);
   });
 
-  test('extracts title correctly', () => {
-    const $ = cheerio.load(SAMPLE_HTML);
-    const articles = extract($, BASE_URL);
-    expect(articles[0].title).toBe('Quantifying Infrastructure Noise in Agentic Coding Evals');
+  test('maps link, guid, date and image', () => {
+    const [first] = extract(cheerio.load(SAMPLE_HTML), BASE_URL);
+    expect(first.link).toBe(
+      'https://www.anthropic.com/research/building-strong-safety-evaluations'
+    );
+    expect(first.guid).toBe(first.link);
+    expect(first.pubDate).toEqual(new Date('Nov 13, 2026'));
+    expect(first.imageUrl).toBe(
+      'https://assets.claude.com/building-strong-safety-evaluations.jpg?w=1080&q=75'
+    );
   });
 
-  test('resolves relative links to absolute URLs', () => {
-    const $ = cheerio.load(SAMPLE_HTML);
-    const articles = extract($, BASE_URL);
-    expect(articles[0].link).toBe('https://www.anthropic.com/engineering/infrastructure-noise');
+  test('leaves imageUrl null when a row has no image', () => {
+    const articles = extract(cheerio.load(SAMPLE_HTML), BASE_URL);
+    expect(articles[2].imageUrl).toBeNull();
   });
 
-  test('extracts summary as description', () => {
-    const $ = cheerio.load(SAMPLE_HTML);
-    const articles = extract($, BASE_URL);
-    expect(articles[0].description).toContain('Infrastructure configuration');
+  test('ignores featured cards, navigation and team links outside listing rows', () => {
+    const links = extract(cheerio.load(SAMPLE_HTML), BASE_URL).map((a) => a.link);
+    expect(links).toHaveLength(3);
+    expect(links.some((link) => link.includes('/research/team/'))).toBe(false);
   });
 
-  test('parses date text for pubDate', () => {
-    const $ = cheerio.load(SAMPLE_HTML);
-    const articles = extract($, BASE_URL);
-    expect(articles[0].pubDate).toBeInstanceOf(Date);
-  });
-
-  test('parses datetime attribute from time element', () => {
-    const $ = cheerio.load(SAMPLE_HTML);
-    const articles = extract($, BASE_URL);
-    expect(articles[2].pubDate).toBeInstanceOf(Date);
-    expect(articles[2].pubDate!.getFullYear()).toBe(2026);
-  });
-
-  test('extracts image URL', () => {
-    const $ = cheerio.load(SAMPLE_HTML);
-    const articles = extract($, BASE_URL);
-    expect(articles[0].imageUrl).toContain('anthropic.com');
-  });
-
-  test('article without image has null imageUrl', () => {
-    const $ = cheerio.load(SAMPLE_HTML);
-    const articles = extract($, BASE_URL);
-    expect(articles[1].imageUrl).toBeNull();
-  });
-
-  test('skips nav links and short text links', () => {
-    const $ = cheerio.load(SAMPLE_HTML);
-    const articles = extract($, BASE_URL);
-    const links = articles.map((a: Article) => a.link);
-    expect(links).not.toContain('https://www.anthropic.com/engineering');
-  });
-
-  test('deduplicates by URL', () => {
-    const dupeHtml = `
-      <html><body>
-        <div class="card">
-          <a href="/engineering/same-article">
-            <h3>Same Article Title Here</h3>
-          </a>
-        </div>
-        <div class="card">
-          <a href="/engineering/same-article">
-            <h3>Same Article Title Here</h3>
-          </a>
-        </div>
-      </body></html>
-    `;
-    const $ = cheerio.load(dupeHtml);
-    const articles = extract($, BASE_URL);
-    expect(articles).toHaveLength(1);
+  test('deduplicates repeated rows', () => {
+    const html = row('a-post', 'A repeated post', 'Nov 1, 2026').repeat(2);
+    expect(extract(cheerio.load(html), BASE_URL)).toHaveLength(1);
   });
 
   test('caps at 20 articles', () => {
-    let html = '<html><body>';
-    for (let i = 0; i < 25; i++) {
-      html += `
-        <div class="card">
-          <a href="/engineering/article-${i}">
-            <h3>Engineering Article Number ${i}</h3>
-          </a>
-        </div>`;
-    }
-    html += '</body></html>';
-    const $ = cheerio.load(html);
-    const articles = extract($, BASE_URL);
-    expect(articles).toHaveLength(20);
+    const html = Array.from({ length: 25 }, (_, i) =>
+      row(`post-${i}`, `Post ${i}`, 'Nov 1, 2026')
+    ).join('');
+    expect(extract(cheerio.load(html), BASE_URL)).toHaveLength(20);
   });
 
-  test('returns empty array for page with no engineering links', () => {
-    const $ = cheerio.load('<html><body><p>No articles</p></body></html>');
-    const articles = extract($, BASE_URL);
-    expect(articles).toHaveLength(0);
-  });
-
-  test('sets guid equal to link', () => {
-    const $ = cheerio.load(SAMPLE_HTML);
-    const articles = extract($, BASE_URL);
-    expect(articles[0].guid).toBe(articles[0].link);
-  });
-
-  test('extracts categories from card metadata', () => {
-    const html = `
-      <html><body>
-        <div class="card">
-          <a href="/engineering/some-article">
-            <h3>Some Engineering Article Title</h3>
-          </a>
-          <span class="category">Research</span>
-        </div>
-      </body></html>
-    `;
-    const $ = cheerio.load(html);
-    const articles = extract($, BASE_URL);
-    expect(articles[0].categories).toEqual(['Research']);
-  });
-
-  test('articles without category elements have no categories', () => {
-    const $ = cheerio.load(SAMPLE_HTML);
-    const articles = extract($, BASE_URL);
-    expect(articles[0].categories).toBeUndefined();
+  test('returns no articles when the page has no listing rows', () => {
+    const html = '<a href="/engineering/old-post"><h3>An old-style engineering card</h3></a>';
+    expect(extract(cheerio.load(html), BASE_URL)).toEqual([]);
   });
 });
 

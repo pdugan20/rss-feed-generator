@@ -7,11 +7,20 @@ import { feedUrls, feeds } from '../lib/feeds';
 import type { FastifyInstance } from 'fastify';
 import type { GeneratedFeeds } from '../lib/types';
 import * as articleSource from '../lib/article-source';
+import { feedHealth } from '../lib/feed-health';
 
 jest.mock('../lib/article-source');
 jest.mock('../lib/cache');
 jest.mock('../lib/feed-generator');
 jest.mock('../lib/feed-store');
+jest.mock('../lib/feed-health', () => ({
+  ...jest.requireActual('../lib/feed-health'),
+  feedHealth: {
+    get: jest.fn().mockReturnValue(null),
+    recordSuccess: jest.fn(),
+    recordFailure: jest.fn(),
+  },
+}));
 jest.mock('../lib/enricher', () => ({
   enrichArticles: jest.fn().mockResolvedValue(undefined),
 }));
@@ -24,6 +33,7 @@ const mockedArticleSource = jest.mocked(articleSource);
 const mockedCache = jest.mocked(cache);
 const mockedFeedGenerator = jest.mocked(feedGenerator);
 const mockedFeedStore = jest.mocked(feedStore);
+const mockedFeedHealth = jest.mocked(feedHealth);
 
 const TEST_API_KEY = 'test-api-key-12345';
 const MARINERS_URL = 'https://www.seattletimes.com/sports/mariners/';
@@ -44,6 +54,7 @@ beforeEach(async () => {
   jest.clearAllMocks();
   releaseRefreshLock();
   mockedCache.get.mockReturnValue(undefined);
+  mockedFeedHealth.get.mockReturnValue(null);
   mockedFeedGenerator.getContentType.mockImplementation((format) => {
     if (format === 'atom') return 'application/atom+xml; charset=utf-8';
     if (format === 'json') return 'application/feed+json; charset=utf-8';
@@ -265,6 +276,7 @@ describe('GET /feed', () => {
 
   test('returns 404 when scraper finds no articles', async () => {
     mockedCache.get.mockReturnValue(undefined);
+    mockedFeedStore.get.mockReturnValue(null);
     mockedArticleSource.fetchArticles.mockResolvedValue({ articles: [], pageTitle: 'Empty' });
 
     const response = await app.inject({
@@ -273,6 +285,56 @@ describe('GET /feed', () => {
     });
 
     expect(response.statusCode).toBe(404);
+    expect(mockedFeedHealth.recordFailure).toHaveBeenCalledWith(MARINERS_URL, 'No articles found');
+  });
+
+  test('serves the last good copy with X-Cache STALE when a refresh fails', async () => {
+    mockedCache.get.mockReturnValue(undefined);
+    mockedFeedStore.get.mockReturnValue({
+      feeds: MOCK_FEEDS,
+      sourceUrl: MARINERS_URL,
+      articleCount: 5,
+      cachedAt: new Date(Date.now() - 100000000).toISOString(),
+    });
+    mockedFeedStore.isStale.mockReturnValue(true);
+    mockedArticleSource.fetchArticles.mockRejectedValue(new Error('Page request limit exceeded'));
+
+    const response = await app.inject({
+      method: 'GET',
+      url: `/feed?url=${encodeURIComponent(MARINERS_URL)}`,
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.headers['x-cache']).toBe('STALE');
+    expect(response.body).toBe(MOCK_FEEDS.rss);
+    expect(mockedFeedHealth.recordFailure).toHaveBeenCalledWith(
+      MARINERS_URL,
+      'Page request limit exceeded'
+    );
+  });
+
+  test('does not retry a refresh that failed within the backoff window', async () => {
+    mockedCache.get.mockReturnValue(undefined);
+    mockedFeedStore.get.mockReturnValue({
+      feeds: MOCK_FEEDS,
+      sourceUrl: MARINERS_URL,
+      articleCount: 5,
+      cachedAt: new Date(Date.now() - 100000000).toISOString(),
+    });
+    mockedFeedStore.isStale.mockReturnValue(true);
+    mockedFeedHealth.get.mockReturnValue({
+      lastAttemptAt: new Date().toISOString(),
+      lastSuccessAt: null,
+      lastError: 'Page request limit exceeded',
+    });
+
+    const response = await app.inject({
+      method: 'GET',
+      url: `/feed?url=${encodeURIComponent(MARINERS_URL)}`,
+    });
+
+    expect(response.headers['x-cache']).toBe('STALE');
+    expect(mockedArticleSource.fetchArticles).not.toHaveBeenCalled();
   });
 });
 
@@ -440,6 +502,38 @@ describe('POST /refresh', () => {
 });
 
 describe('GET /status', () => {
+  test('reports each feed as failing once its last success is over 36 hours old', async () => {
+    mockedFeedStore.getMetadata.mockImplementation((url) =>
+      url === MARINERS_URL
+        ? { cachedAt: new Date(Date.now() - 40 * 3600 * 1000).toISOString(), articleCount: 20 }
+        : { cachedAt: new Date().toISOString(), articleCount: 20 }
+    );
+    mockedFeedStore.isStale.mockReturnValue(false);
+    mockedFeedHealth.get.mockImplementation((url) =>
+      url === MARINERS_URL
+        ? {
+            lastAttemptAt: new Date().toISOString(),
+            lastSuccessAt: null,
+            lastError: 'Page request limit exceeded',
+          }
+        : null
+    );
+
+    const body = JSON.parse((await app.inject({ method: 'GET', url: '/status' })).body);
+
+    expect(body.failing).toEqual(['mariners']);
+    const mariners = body.feeds.find((f: { label: string }) => f.label === 'mariners');
+    expect(mariners).toMatchObject({
+      healthy: false,
+      lastError: 'Page request limit exceeded',
+    });
+    expect(body.feeds.filter((f: { healthy: boolean }) => f.healthy)).toHaveLength(
+      feeds.length - 1
+    );
+    mockedFeedStore.getMetadata.mockReset();
+    mockedFeedHealth.get.mockReset();
+  });
+
   test('returns degraded when no feeds are cached', async () => {
     mockedCache.get.mockReturnValue(undefined);
     mockedFeedStore.getMetadata.mockReturnValue(null);
