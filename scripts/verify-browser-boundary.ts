@@ -74,6 +74,10 @@ async function main() {
       return response(
         `<script>for(let i=0;i<150;i++)fetch('/data.json?i='+i).catch(()=>{});</script>`
       );
+    if (mode === 'heavy')
+      return response(
+        `<html><body><p>heavy fixture</p><script>for(let i=0;i<300;i++){const img=new Image();img.src='/pixel.png?i='+i;document.body.append(img);}</script></body></html>`
+      );
     const html = `<html><head><title>Before hydration</title></head><body><p id="result"></p>
       <script src="/hydrate.js"></script>
       <img src="${privateUrl}image"><iframe src="${privateUrl}frame"></iframe>
@@ -113,13 +117,21 @@ async function main() {
     }, privateUrl);
     await context.close();
     for (mode of ['redirect', 'loop', 'dom', 'poisoned-dom', 'fanout']) {
-      await assert.rejects(scraper.loadHtml(feed), Error, mode);
+      await assert.rejects(
+        scraper.loadHtml(feed),
+        mode === 'fanout' ? /Page request limit exceeded \(129 fetched: fetch/ : Error,
+        mode
+      );
       // Abort can settle before asynchronous cleanup; wait on the actual contexts.
       const until = Date.now() + 4000;
       while (browser.browserContexts().length > 1 && Date.now() < until)
         await new Promise((resolve) => setTimeout(resolve, 20));
       assert.equal(browser.browserContexts().length, 1, `${mode} context cleanup`);
     }
+    // Blocked subresources (here, images) do not count toward the fetched-request
+    // limit, so an ad- and image-heavy page still renders.
+    mode = 'heavy';
+    assert.match(await scraper.loadHtml(feed), /heavy fixture/);
     mode = 'popup';
     let peakPages = 0;
     const watch = setInterval(() => {
@@ -155,6 +167,7 @@ async function main() {
           'popup creation',
           'request fanout',
         ],
+        allowed: ['blocked subresource fanout'],
       })
     );
   } finally {
