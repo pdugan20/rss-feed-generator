@@ -1,9 +1,6 @@
 import cache from './cache';
-import feedGenerator from './feed-generator';
-import feedStore from './feed-store';
 import { feedUrls } from './feeds';
-import { enrichArticles } from './enricher';
-import { fetchArticles } from './article-source';
+import { refreshFeed } from './feed-refresh';
 
 class Scheduler {
   feeds: string[];
@@ -20,22 +17,10 @@ class Scheduler {
         console.log(`Refreshing feed: ${feedUrl}`);
 
         // Clear the cache for this feed
-        const cacheKey = `feed:${feedUrl}`;
-        cache.del(cacheKey);
+        cache.del(`feed:${feedUrl}`);
 
-        // Pre-fetch the feed to warm the cache
-        const { articles, pageTitle } = await fetchArticles(feedUrl);
-
-        if (articles && articles.length > 0) {
-          await enrichArticles(feedUrl, articles);
-          const feeds = await feedGenerator.generateFeeds(feedUrl, articles, pageTitle);
-          cache.set(cacheKey, feeds);
-          feedStore.set(feedUrl, feeds, articles.length);
-
-          console.log(`Successfully refreshed feed: ${feedUrl} (${articles.length} articles)`);
-        } else {
-          console.log(`No articles found for: ${feedUrl}`);
-        }
+        const { articleCount } = await refreshFeed(feedUrl);
+        console.log(`Successfully refreshed feed: ${feedUrl} (${articleCount} articles)`);
       } catch (error) {
         console.error(`Error refreshing feed ${feedUrl}:`, (error as Error).message);
       }

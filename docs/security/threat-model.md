@@ -34,7 +34,8 @@ frames, workers and plugins. DOM snapshots use an isolated DevTools world and a
 defensive Node byte check. Root-run Railway still needs `--no-sandbox`.
 
 Page limits are two active/sixteen queued, four concurrent requests each/eight
-globally, 128 requests, five redirect hops, 24 MiB combined raw/decoded bytes,
+globally, 128 fetched requests (1,024 request events including blocked
+subresources), five redirect hops, 24 MiB combined raw/decoded bytes,
 a 4 MiB serialized DOM and a 30-second deadline. Cancellation closes the context;
 a two-second close watchdog kills the owned browser if necessary. At most two
 uncancellable OS lookups remain active, and late answers cannot connect.

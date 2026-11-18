@@ -3,12 +3,12 @@ import { createHash } from 'crypto';
 import Fastify, { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import cors from '@fastify/cors';
 import feedGenerator from './lib/feed-generator';
-import { fetchArticles } from './lib/article-source';
 import cache from './lib/cache';
 import feedStore from './lib/feed-store';
 import { feedUrls, feeds, getFeedConfig } from './lib/feeds';
-import { enrichArticles } from './lib/enricher';
 import articleStore from './lib/article-store';
+import { feedHealth, isHealthy } from './lib/feed-health';
+import { NoArticlesError, refreshFeed } from './lib/feed-refresh';
 import type { FeedFormat, GeneratedFeeds } from './lib/types';
 
 function generateETag(content: string): string {
@@ -18,6 +18,14 @@ function generateETag(content: string): string {
 const ALLOWED_FEEDS: string[] = feedUrls;
 const VALID_FORMATS: FeedFormat[] = ['rss', 'atom', 'json'];
 const REFRESH_LOCK_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
+// After a failed on-demand refresh, serve the last good copy for this long
+// before scraping again, so feed reader polling does not hammer a broken source.
+const FAILED_REFRESH_BACKOFF_MS = 15 * 60 * 1000;
+
+function latest(...dates: (string | null | undefined)[]): string | null {
+  const times = dates.filter((d): d is string => !!d && !isNaN(new Date(d).getTime()));
+  return times.sort((a, b) => new Date(b).getTime() - new Date(a).getTime())[0] ?? null;
+}
 
 interface RefreshLock {
   active: boolean;
@@ -110,11 +118,17 @@ function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
       const diskMeta = feedStore.getMetadata(feed.url);
       const diskCached = diskMeta !== null;
       const diskStale = diskCached ? feedStore.isStale(feed.url) : null;
+      const health = feedHealth.get(feed.url);
+      const lastSuccessAt = latest(health?.lastSuccessAt, diskMeta?.cachedAt);
 
       return {
         label: feed.label,
         url: feed.url,
         extractor: feed.extractor,
+        healthy: isHealthy(lastSuccessAt),
+        lastSuccessAt,
+        lastAttemptAt: health?.lastAttemptAt ?? null,
+        lastError: health?.lastError ?? null,
         cached: memoryCached || (diskCached && !diskStale),
         memory: memoryCached,
         disk: diskCached,
@@ -129,6 +143,7 @@ function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
     return {
       status: allCached ? 'healthy' : 'degraded',
       timestamp: new Date().toISOString(),
+      failing: feedStatus.filter((f) => !f.healthy).map((f) => f.label),
       feeds: feedStatus,
     };
   });
@@ -175,27 +190,19 @@ function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
         }
 
         // Clear cache and refresh specific feed
-        const cacheKey = `feed:${url}`;
-        cache.del(cacheKey);
+        cache.del(`feed:${url}`);
 
-        const { articles, pageTitle } = await fetchArticles(url);
-        if (articles && articles.length > 0) {
-          await enrichArticles(url, articles);
-          const generatedFeeds = await feedGenerator.generateFeeds(url, articles, pageTitle);
-          cache.set(cacheKey, generatedFeeds);
-          feedStore.set(url, generatedFeeds, articles.length);
-
+        try {
+          const { articleCount } = await refreshFeed(url);
           return {
             status: 'success',
             message: `Feed refreshed: ${url}`,
-            articles_count: articles.length,
+            articles_count: articleCount,
             cached_until: new Date(Date.now() + 86400000).toISOString(),
           };
-        } else {
-          return reply.code(404).send({
-            error: 'No articles found',
-            url,
-          });
+        } catch (error) {
+          if (!(error instanceof NoArticlesError)) throw error;
+          return reply.code(404).send({ error: 'No articles found', url });
         }
       } else {
         // Refresh all allowed feeds
@@ -208,33 +215,9 @@ function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
 
         for (const feedUrl of ALLOWED_FEEDS) {
           try {
-            const cacheKey = `feed:${feedUrl}`;
-            cache.del(cacheKey);
-
-            const { articles, pageTitle } = await fetchArticles(feedUrl);
-
-            if (articles && articles.length > 0) {
-              await enrichArticles(feedUrl, articles);
-              const generatedFeeds = await feedGenerator.generateFeeds(
-                feedUrl,
-                articles,
-                pageTitle
-              );
-              cache.set(cacheKey, generatedFeeds);
-              feedStore.set(feedUrl, generatedFeeds, articles.length);
-
-              results.push({
-                url: feedUrl,
-                status: 'success',
-                articles_count: articles.length,
-              });
-            } else {
-              results.push({
-                url: feedUrl,
-                status: 'error',
-                message: 'No articles found',
-              });
-            }
+            cache.del(`feed:${feedUrl}`);
+            const { articleCount } = await refreshFeed(feedUrl);
+            results.push({ url: feedUrl, status: 'success', articles_count: articleCount });
           } catch (error) {
             results.push({
               url: feedUrl,
@@ -323,23 +306,33 @@ function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
           return sendFeed(diskEntry.feeds[format], 'DISK');
         }
 
-        fastify.log.info(`Fetching ${url}`);
-        const { articles, pageTitle } = await fetchArticles(url);
-
-        if (!articles || articles.length === 0) {
-          return reply.code(404).send({
-            error: 'No articles found at the specified URL',
-            url,
-          });
+        // A recent refresh already failed: keep serving the last good copy.
+        const health = feedHealth.get(url);
+        if (
+          diskEntry &&
+          health?.lastError &&
+          Date.now() - new Date(health.lastAttemptAt).getTime() < FAILED_REFRESH_BACKOFF_MS
+        ) {
+          return sendFeed(diskEntry.feeds[format], 'STALE');
         }
 
-        await enrichArticles(url, articles);
-        const generatedFeeds = await feedGenerator.generateFeeds(url, articles, pageTitle);
-
-        cache.set(cacheKey, generatedFeeds);
-        feedStore.set(url, generatedFeeds, articles.length);
-
-        return sendFeed(generatedFeeds[format], 'MISS');
+        fastify.log.info(`Fetching ${url}`);
+        try {
+          const { feeds: generatedFeeds } = await refreshFeed(url);
+          return sendFeed(generatedFeeds[format], 'MISS');
+        } catch (error) {
+          if (diskEntry) {
+            fastify.log.warn(`Refresh failed for ${url}; serving last good copy`);
+            return sendFeed(diskEntry.feeds[format], 'STALE');
+          }
+          if (error instanceof NoArticlesError) {
+            return reply.code(404).send({
+              error: 'No articles found at the specified URL',
+              url,
+            });
+          }
+          throw error;
+        }
       } catch (error) {
         fastify.log.error(error);
         return reply.code(500).send({

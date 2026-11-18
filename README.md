@@ -94,7 +94,8 @@ root-run Railway image still requires `--no-sandbox`; these network controls are
 not an operating-system sandbox or protection against a Chromium exploit.
 
 Limits: two active pages, sixteen queued pages, a 30-second page deadline,
-128 requests per page, four concurrent requests per page (eight globally),
+128 fetched requests per page (1,024 including blocked subresources), four
+concurrent requests per page (eight globally),
 16 KiB request/response headers, 64 KiB request bodies, 4 MiB raw and decoded
 response bodies, 24 MiB combined raw/decoded bytes per page, and a 4 MiB serialized
 rendered document. Individual requests have a 15-second deadline covering queued

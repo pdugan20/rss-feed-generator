@@ -2,123 +2,46 @@ import type { CheerioAPI } from 'cheerio';
 import { resolveUrl, parseDate, estimateReadingTime } from '../extract';
 import type { Article } from '../types';
 
+// claude.com/blog redirects to claude.com/resources/articles, which renders each
+// post as a CSS-module ResourceCard link (hashed class names, stable suffixes).
+// Featured cards repeat listed posts; some cards link out to claude.dev/blog.
 function extract($: CheerioAPI, _url: string): Article[] {
   const articles: Article[] = [];
   const seenUrls = new Set<string>();
   const baseUrl = 'https://claude.com';
 
-  // Strategy 1: Webflow CMS items
-  $('.blog_cms_item').each((_index, element) => {
+  const field = ($card: ReturnType<CheerioAPI>, name: string) =>
+    $card.find(`[class*="ResourceCard"][class*="__${name}"]`).first();
+
+  $('a[class*="ResourceCard"][href]').each((_index, element) => {
     if (articles.length >= 20) return false;
 
-    const $item = $(element);
+    const $card = $(element);
+    const classes = ($card.attr('class') ?? '').split(/\s+/);
+    if (!classes.some((name) => name.endsWith('__card'))) return;
 
-    // Find the link to the blog post
-    const $link = $item.find('a[href*="/blog/"]').first();
-    if (!$link.length) return;
+    const link = resolveUrl($card.attr('href'), baseUrl);
+    const title = field($card, 'title').text().trim();
+    if (!link || !title || seenUrls.has(link)) return;
+    seenUrls.add(link);
 
-    const href = $link.attr('href');
-    if (!href || href === '/blog' || href === '/blog/') return;
-    if (href.includes('/blog/category/')) return;
-
-    const fullUrl = resolveUrl(href, baseUrl);
-    if (!fullUrl || seenUrls.has(fullUrl)) return;
-
-    // Extract title
-    const title =
-      $item.find('.card_blog_title').first().text().trim() ||
-      $item.find('h2, h3, h4, [class*="title"]').first().text().trim() ||
-      $link.text().trim();
-
-    if (!title || title.length < 5) return;
-
-    seenUrls.add(fullUrl);
-
-    // Extract date from metadata
-    let pubDate: Date | null = null;
-    const $meta = $item
-      .find('.card_blog_list_meta, .u-text-style-caption, [class*="meta"], [class*="date"]')
-      .first();
-    if ($meta.length > 0) {
-      const $time = $meta.find('time');
-      if ($time.length > 0) {
-        pubDate = parseDate($time.attr('datetime')) || parseDate($time.text().trim());
-      }
-      if (!pubDate) {
-        pubDate = parseDate($meta.text().trim());
-      }
-    }
-
-    // Extract description
-    const description =
-      $item
-        .find('[class*="description"], [class*="excerpt"], [class*="summary"], p')
-        .first()
-        .text()
-        .trim() || '';
-
-    // Extract categories
-    const categories: string[] = [];
-    $item.find('[class*="category"], [class*="tag"], .card_blog_category').each((_i, el) => {
-      const cat = $(el).text().trim();
-      if (cat && !categories.includes(cat)) {
-        categories.push(cat);
-      }
-    });
-
-    // Extract image
-    let imageUrl: string | null = null;
-    const $img = $item.find('.card_blog_visual_wrap img, img').first();
-    if ($img.length > 0) {
-      const imgSrc = $img.attr('src') || $img.attr('data-src');
-      imageUrl = resolveUrl(imgSrc, baseUrl);
-    }
+    const categories = $card
+      .find('[class*="ResourceCard"][class*="__productTag"]')
+      .map((_i, el) => $(el).text().trim())
+      .get()
+      .filter((cat, i, all) => cat && all.indexOf(cat) === i);
+    const $img = $card.find('img').first();
 
     articles.push({
       title: title.substring(0, 200),
-      link: fullUrl,
-      description: description.substring(0, 500),
-      pubDate,
-      imageUrl,
-      guid: fullUrl,
+      link,
+      description: field($card, 'excerpt').text().trim().substring(0, 500),
+      pubDate: parseDate(field($card, 'meta').text().trim()),
+      imageUrl: resolveUrl($img.attr('src') || $img.attr('data-src'), baseUrl),
+      guid: link,
       categories: categories.length > 0 ? categories : undefined,
     });
   });
-
-  // Strategy 2: Fallback - scan for /blog/ links if no CMS items found
-  if (articles.length === 0) {
-    $('a[href*="/blog/"]').each((_index, element) => {
-      if (articles.length >= 20) return false;
-
-      const $link = $(element);
-      const href = $link.attr('href');
-
-      if (!href || href === '/blog' || href === '/blog/') return;
-      if (href.includes('/blog/category/')) return;
-      if (href.startsWith('#') || href.startsWith('javascript:')) return;
-
-      const fullUrl = resolveUrl(href, baseUrl);
-      if (!fullUrl || seenUrls.has(fullUrl)) return;
-
-      const title = $link.text().trim();
-      if (!title || title.length < 10) return;
-
-      seenUrls.add(fullUrl);
-
-      const $parent = $link.parent();
-      const description =
-        $parent.find('[class*="description"], [class*="excerpt"], p').first().text().trim() || '';
-
-      articles.push({
-        title: title.substring(0, 200),
-        link: fullUrl,
-        description: description.substring(0, 500),
-        pubDate: null,
-        imageUrl: null,
-        guid: fullUrl,
-      });
-    });
-  }
 
   return articles;
 }

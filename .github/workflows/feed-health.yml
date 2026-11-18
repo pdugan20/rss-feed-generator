@@ -1,0 +1,42 @@
+name: Feed Health
+
+# Fails once when a production feed passes 36 hours without a successful refresh,
+# again each Monday while it stays broken, and on every run the service is
+# unreachable. GitHub's failed-workflow notification is the alert; the run summary
+# lists every failing feed with its last error. Manual runs report all failures.
+# Read-only by design. Keep the cron in sync with scripts/check-feed-health.ts.
+on:
+  schedule:
+    # 14:30 UTC, ninety minutes after the Railway refresh cron (13:00 UTC).
+    - cron: '30 14 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: feed-health
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Use Node.js 24
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+        env:
+          PUPPETEER_SKIP_DOWNLOAD: 'true'
+
+      - name: Check production feeds
+        run: ./node_modules/.bin/tsx scripts/check-feed-health.ts

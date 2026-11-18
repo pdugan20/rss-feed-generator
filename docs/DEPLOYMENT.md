@@ -61,6 +61,34 @@ railway status      # Check deployment status
 - **Manual:** Use the `/refresh` endpoint with your API key
 - **Default Cache Duration:** 24 hours (in-memory) + persistent disk cache that survives restarts
 - **Per-feed TTL:** API-based feeds (e.g., AP Photos) can configure shorter cache durations via `cacheTtlMs` in `lib/feeds.ts`
+- **Failures:** When a refresh fails, `/feed` keeps serving the last good copy (`X-Cache: STALE`) and waits 15 minutes before retrying that feed on demand.
+
+## Feed Health Alerts
+
+Every refresh records its outcome in `DATA_DIR/feed-health.json`. `/status` reports each
+feed's `healthy`, `lastSuccessAt`, `lastAttemptAt` and `lastError`, plus a top-level
+`failing` list. A feed is unhealthy after 36 hours without a successful refresh, so one
+transient failure does not alert but two missed daily refreshes do.
+
+The `Feed Health` workflow (`.github/workflows/feed-health.yml`) reads production
+`/status` daily at 14:30 UTC. A scheduled run fails, and GitHub emails whoever last
+changed the workflow's schedule, when:
+
+- a feed crossed the 36-hour threshold since the previous day's run (one alert per breakage)
+- it is Monday and any feed is still failing (weekly reminder)
+- the service is unreachable or `/status` lacks health fields (every run)
+
+Every run summary lists all failing feeds with their last error, marking which ones
+alerted. The check anchors each run to its planned 14:30 UTC slot, so a late GitHub start
+neither skips nor repeats an alert. Manual runs from the Actions tab report every failing
+feed. To run it locally:
+
+```bash
+npx tsx scripts/check-feed-health.ts   # FEED_STATUS_URL overrides the production URL
+```
+
+GitHub disables scheduled workflows after 60 days without repository activity and emails
+before doing so; re-enable it from the Actions tab.
 
 ## Deploy Verification
 

@@ -21,7 +21,11 @@ interface ScrapeResult {
 const PAGE_TIMEOUT_MS = 30_000;
 const MAX_DOCUMENT_BYTES = 4 * 1024 * 1024;
 const MAX_PAGE_BYTES = 24 * 1024 * 1024;
+// Requests the scraper fulfills over the network. Blocked requests (images, fonts,
+// frames, analytics beacons) cost no upstream work and count only toward the
+// larger event backstop, so ad-heavy pages are not rejected for what they attempt.
 const MAX_PAGE_REQUESTS = 128;
+const MAX_PAGE_REQUEST_EVENTS = 1024;
 const PAGE_TYPES = new Set(['document', 'script', 'stylesheet', 'xhr', 'fetch', 'preflight']);
 const CHROMIUM_PATHS = [
   '/root/.nix-profile/bin/chromium',
@@ -172,17 +176,26 @@ class Scraper {
             await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36');
             await page.setRequestInterception(true);
             const network = new BoundedGate(4, MAX_PAGE_REQUESTS);
-            let requests = 0;
+            let seen = 0;
+            let fetched = 0;
+            const fetchedTypes = new Map<string, number>();
             let bytes = 0;
             let fatal: Error | undefined;
             const fail = (message: string) => {
               fatal = new Error(message);
               ctrl.abort(fatal);
             };
+            const failRequestLimit = () => {
+              const types = [...fetchedTypes]
+                .sort((a, b) => b[1] - a[1])
+                .map(([type, count]) => `${type} ${count}`)
+                .join(', ');
+              fail(`Page request limit exceeded (${fetched} fetched: ${types}; ${seen} seen)`);
+            };
             const handle = async (request: HTTPRequest) => {
               if (request.isInterceptResolutionHandled()) return;
-              if (++requests > MAX_PAGE_REQUESTS) {
-                fail('Page request limit exceeded');
+              if (++seen > MAX_PAGE_REQUEST_EVENTS) {
+                failRequestLimit();
                 return;
               }
               try {
@@ -194,6 +207,12 @@ class Scraper {
                 if (request.redirectChain().length > MAX_REDIRECTS)
                   throw new Error('Page redirect limit exceeded');
                 if (target.protocol !== 'https:') throw new Error('Page requests require HTTPS');
+                const type = request.resourceType();
+                fetchedTypes.set(type, (fetchedTypes.get(type) ?? 0) + 1);
+                if (++fetched > MAX_PAGE_REQUESTS) {
+                  failRequestLimit();
+                  return;
+                }
                 await network.run(ctrl.signal, async () => {
                   const body = request.hasPostData() ? await request.fetchPostData() : undefined;
                   const response = await requestPublic(target.href, {

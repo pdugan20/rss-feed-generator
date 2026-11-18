@@ -50,6 +50,8 @@ lib/
 ├── scraper.ts            # Browser management (Puppeteer)
 ├── feed-generator.ts     # Multi-format feed generation (RSS, Atom, JSON)
 ├── feed-store.ts         # Disk-based feed cache
+├── feed-health.ts        # Persisted per-feed refresh outcomes for /status
+├── feed-refresh.ts       # Shared fetch → enrich → generate → cache pipeline
 ├── enricher.ts           # Article enrichment pipeline
 ├── article-store.ts      # Persistent article metadata
 ├── cache.ts              # In-memory cache (24h TTL)
