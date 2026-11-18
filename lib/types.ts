@@ -23,6 +23,12 @@ export interface FeedConfig {
   maxItems?: number;
   /** Explicit canonical page origins for known cross-origin source redirects. */
   pageOrigins?: string[];
+  /**
+   * How to load a scraped page. 'browser' (default) renders it in Chromium;
+   * 'html' parses the server-rendered document without running JavaScript, for
+   * sources whose article list is in the HTML and whose scripts are ad traffic.
+   */
+  render?: 'browser' | 'html';
 }
 
 export interface ApiFetcher {

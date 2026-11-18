@@ -338,6 +338,7 @@ export async function fetchPublicJson(value: string, options: RequestOptions = {
         ok: response.status >= 200 && response.status < 300,
         status: response.status,
         json: async (): Promise<unknown> => JSON.parse(response.body.toString('utf8')),
+        text: async (): Promise<string> => response.body.toString('utf8'),
       };
     }
     if (count >= MAX_REDIRECTS || !response.headers.location)
