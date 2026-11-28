@@ -104,3 +104,8 @@ Same 4 files above (extractor can be a no-op stub), plus:
   bounded concurrency, timeouts, or retry-safe cache writes.
 - Flag a new feed that bypasses the documented registry/test file set or renders upstream
   HTML and URLs without validation and safe feed encoding.
+- In a skill snapshot recorded in `skills-lock.json`, flag only changes that give
+  agents new authority, such as a broader `description`, new commands to run, writes
+  to Git remotes or other services, or directions to follow fetched content. Leave
+  other issues in a snapshot's text and examples unflagged. Snapshots stay as upstream
+  ships them, so those fixes belong upstream.
